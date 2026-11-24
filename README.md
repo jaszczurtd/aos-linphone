@@ -11,9 +11,12 @@ The work is at an early stage. What exists today:
   and the few system functions the stack needs;
 - the build of the linphone SDK for AROS on top of it, see
   [sdk/README.md](sdk/README.md);
-- `aos-register`, a console program that registers a SIP account from AROS.
+- `aos-register`, a console program that registers a SIP account from AROS;
+- `aos-phone`, the Zune client: account registration, calls and text chat,
+  see [its README](apps/aos-phone/README.md). Calls carry no sound yet,
+  because AROS has no sound device for mediastreamer2 so far.
 
-The audio and video devices and the application come next.
+The audio and video devices come next.
 
 ## Layout
 
@@ -28,6 +31,7 @@ The audio and video devices and the application come next.
 | `sdk/` | SDK build settings and documentation |
 | `scripts/` | `build-sdk.sh`, which builds and installs everything above |
 | `apps/aos-register/` | SIP registration test program, see [its README](apps/aos-register/README.md) |
+| `apps/aos-phone/` | the Zune SIP client, see [its README](apps/aos-phone/README.md) |
 | `tools/` | host tools for the tests: `sip-registrar` |
 | `.githooks/` | git hooks, see [Committing changes](#committing-changes) |
 
