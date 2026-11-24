@@ -35,15 +35,16 @@ jobs (default 8).
 `sdk/aros-sdk.cmake` is the initial cache of the SDK build. It gives every
 compiled unit the forced header `aos_compat.h` and every link, including
 CMake's configuration checks, `-laosnet -laoscompat -lpthread`. The build
-is the minimal one: SIP, plain chat, and audio with G.711, G.722, L16 and
-Speex. It has no video, no media encryption (SRTP, ZRTP), no database, and
-no tools or tests. mediastreamer2 has no AROS sound backend yet; its sound
-card API stays in, so an AROS card can be registered at run time.
+is a small one: SIP, plain chat, audio with G.711, G.722, L16, Speex and
+Opus, and SRTP media encryption. It has no video, no ZRTP, no database,
+and no tools or tests. mediastreamer2 has no AROS sound backend yet; its
+sound card API stays in, so an AROS card can be registered at run time.
 
 The libraries the SDK would build from its own submodules come from
-`deps/` instead: jsoncpp, speex/speexdsp, libxml2 and mbedtls 3.6.8. The
-AROS SDK's mbedtls is a minimal TLS client without thread support that lacks
-about a third of the functions bctoolbox uses. The port in `deps/` adds
+`deps/` instead: jsoncpp, speex/speexdsp, libxml2, mbedtls 3.6.8, libsrtp,
+which uses mbedtls for its cryptography, and opus. The AROS SDK's mbedtls
+is a minimal TLS client without thread support that lacks about a third of
+the functions bctoolbox uses. The port in `deps/` adds
 `deps/mbedtls/aros_user_config.h`, which takes entropy, time and timers
 from `libaoscompat`. zlib comes from the AROS SDK.
 

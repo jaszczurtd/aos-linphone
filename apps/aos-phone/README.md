@@ -50,7 +50,15 @@ calls:
 
 Zune shows 8-bit text in the code page of the system. Received messages are
 converted from UTF-8, and characters the code page lacks show as `?`; what
-you type is sent as UTF-8.
+you type is sent as UTF-8. Letters beyond Latin-1, Polish ones for example,
+also need a system code page that has them (set by the Locale preferences)
+and an outline font with their glyphs in the Zune preferences: the bitmap
+fonts AROS installs cover Latin-1 only.
+
+Calls use G.711, G.722, Speex or Opus, whichever both sides support. To
+encrypt the media with SRTP, add `media_encryption=srtp` to the `[sip]`
+section of `linphonerc` in the `DATA` directory while the program is not
+running; the other client then has to support SRTP as well.
 
 ## ARexx port
 

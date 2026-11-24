@@ -16,6 +16,10 @@
  * sit in share/belr/grammars next to the program. The core keeps its files
  * in RAM:aos-register.
  *
+ * The core runs in a thread of its own: AROS gives the initial task the
+ * pthread id 0, which belle-sip takes to mean "no thread" and then never
+ * frees its object pools.
+ *
  * Exit code: 0 when the account registered and unregistered, 10 when a step
  * failed or timed out, 20 on bad arguments or a missing network.
  */
@@ -24,6 +28,7 @@
 #include <linphone/core.h>
 #include <linphone/factory.h>
 
+#include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/stat.h>
@@ -31,7 +36,17 @@
 #include <unistd.h>
 
 #define DATA_DIR      "RAM:aos-register"
+#define CACHE_DIR     DATA_DIR "/cache"
 #define RESOURCES_DIR "PROGDIR:share"
+#define STACK_SIZE    (1024 * 1024)
+
+struct job {
+    const char *identity;
+    const char *password;
+    const char *proxy;
+    int seconds;
+    int result; /* exit code */
+};
 
 static const char *state_name(LinphoneRegistrationState state) {
     switch (state) {
@@ -70,20 +85,12 @@ static int run_until(LinphoneCore *core, LinphoneAccount *account,
     return 0;
 }
 
-int main(int argc, char **argv) {
-    if (argc < 3) {
-        fprintf(stderr, "usage: %s <identity> <password> [<proxy>] [<seconds>]\n", argv[0]);
-        return 20;
-    }
-    const char *identity = argv[1];
-    const char *password = argv[2];
-    const char *proxy = argc > 3 ? argv[3] : NULL;
-    int seconds = argc > 4 ? atoi(argv[4]) : 20;
-
-    if (aos_net_status() != 0) {
-        fprintf(stderr, "no network: bsdsocket.library is not available\n");
-        return 20;
-    }
+/* Registers the account and unregisters it; returns the exit code. */
+static int register_account(const struct job *job) {
+    const char *identity = job->identity;
+    const char *password = job->password;
+    const char *proxy = job->proxy;
+    int seconds = job->seconds;
 
     LinphoneFactory *factory = linphone_factory_get();
     linphone_logging_service_set_log_level(linphone_logging_service_get(), LinphoneLogLevelWarning);
@@ -92,6 +99,9 @@ int main(int argc, char **argv) {
     linphone_factory_set_data_dir(factory, DATA_DIR);
     linphone_factory_set_config_dir(factory, DATA_DIR);
     linphone_factory_set_download_dir(factory, DATA_DIR);
+    /* Without it the cache lands next to the data, in RAM:aos-registercache. */
+    mkdir(CACHE_DIR, 0755);
+    linphone_factory_set_cache_dir(factory, CACHE_DIR);
 
     LinphoneCore *core = linphone_factory_create_core_3(factory, NULL, NULL, NULL);
     if (core == NULL) {
@@ -175,4 +185,36 @@ int main(int argc, char **argv) {
     linphone_core_unref(core);
     printf("result: %s\n", registered && unregistered ? "PASS" : "FAIL");
     return registered && unregistered ? 0 : 10;
+}
+
+static void *core_thread(void *arg) {
+    struct job *job = arg;
+    job->result = register_account(job);
+    return NULL;
+}
+
+int main(int argc, char **argv) {
+    if (argc < 3) {
+        fprintf(stderr, "usage: %s <identity> <password> [<proxy>] [<seconds>]\n", argv[0]);
+        return 20;
+    }
+    struct job job = {argv[1], argv[2], argc > 3 ? argv[3] : NULL, argc > 4 ? atoi(argv[4]) : 20, 10};
+
+    if (aos_net_status() != 0) {
+        fprintf(stderr, "no network: bsdsocket.library is not available\n");
+        return 20;
+    }
+
+    pthread_attr_t attr;
+    pthread_attr_init(&attr);
+    pthread_attr_setstacksize(&attr, STACK_SIZE);
+    pthread_t thread;
+    int rc = pthread_create(&thread, &attr, core_thread, &job);
+    pthread_attr_destroy(&attr);
+    if (rc != 0) {
+        fprintf(stderr, "cannot start the core thread\n");
+        return 20;
+    }
+    pthread_join(thread, NULL);
+    return job.result;
 }

@@ -1,6 +1,7 @@
 # Ports of the third-party libraries the linphone stack needs on AROS and
 # that the AROS SDK does not provide in a usable form: jsoncpp,
-# speex/speexdsp, libxml2 and mbedtls. zlib comes from the AROS SDK. The
+# speex/speexdsp, libxml2, mbedtls, libsrtp (SRTP media encryption, with
+# mbedtls as its crypto engine) and opus. zlib comes from the AROS SDK. The
 # SDK's mbedtls is a minimal TLS client without threads and lacks a third of
 # the functions bctoolbox uses, so mbedtls is built from linphone-sdk's
 # submodule with its own configuration plus deps/mbedtls/aros_user_config.h.
@@ -8,10 +9,10 @@
 # The sources are the submodules pinned by linphone-sdk (external/), built
 # as separate static libraries with the AROS toolchain and installed into
 # CMAKE_INSTALL_PREFIX, where the SDK build then finds them (it runs with
-# BUILD_JSONCPP, BUILD_SPEEX, BUILD_LIBXML2 and BUILD_MBEDTLS off). Each
-# library gets the options the SDK itself would give it. mbedtls also takes
-# headers from the compatibility layer, so install that into the same prefix
-# first.
+# BUILD_JSONCPP, BUILD_SPEEX, BUILD_LIBXML2, BUILD_MBEDTLS, BUILD_LIBSRTP2 and
+# BUILD_OPUS off). Each library gets the options the SDK itself would give it. mbedtls
+# and libsrtp also take headers from the compatibility layer, so install that
+# into the same prefix first.
 #
 #   cmake -S deps -B build-deps -DCMAKE_TOOLCHAIN_FILE=<repo>/cmake/aros-x86_64.cmake \
 #         -DAROS_TOOLCHAIN_DIR=<toolchain> -DCMAKE_INSTALL_PREFIX=<prefix>
@@ -27,7 +28,7 @@ set(AOS_SDK_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../third_party/linphone-sdk"
     CACHE PATH "linphone-sdk source tree whose external/ submodules are built")
 get_filename_component(AOS_SDK_SOURCE_DIR "${AOS_SDK_SOURCE_DIR}" ABSOLUTE)
 
-foreach(lib jsoncpp speex libxml2 mbedtls)
+foreach(lib jsoncpp speex libxml2 mbedtls srtp opus)
     if(NOT EXISTS "${AOS_SDK_SOURCE_DIR}/external/${lib}/CMakeLists.txt")
         message(FATAL_ERROR "${AOS_SDK_SOURCE_DIR}/external/${lib} is not checked out; "
             "run: git -C ${AOS_SDK_SOURCE_DIR} submodule update --init external/${lib}")
@@ -75,3 +76,26 @@ ExternalProject_Add(mbedtls
         # header for the POSIX socket prototypes (x509_crt.c calls
         # inet_pton(), which the bare AROS <arpa/inet.h> does not declare).
         "-DCMAKE_C_FLAGS=-I${CMAKE_INSTALL_PREFIX}/include/mbedtls -include ${CMAKE_INSTALL_PREFIX}/include/aos_compat.h")
+
+# libsrtp with mbedtls as its crypto engine, as the SDK builds it
+# (cmake/ExternalDependencies.cmake), with the same forced header as mbedtls.
+ExternalProject_Add(srtp
+    SOURCE_DIR "${AOS_SDK_SOURCE_DIR}/external/srtp"
+    DEPENDS mbedtls
+    CMAKE_ARGS ${AOS_PORT_ARGS}
+        -DENABLE_MBEDTLS=ON
+        -DENABLE_OPENSSL=OFF
+        -DLIBSRTP_TEST_APPS=OFF
+        -DENABLE_WARNINGS_AS_ERRORS=OFF
+        "-DCMAKE_C_FLAGS=-include ${CMAKE_INSTALL_PREFIX}/include/aos_compat.h")
+
+# The Opus codec, floating point with run-time detection of the x86 vector
+# extensions, as the SDK builds it for desktops. The AROS toolchain has no
+# stack protector runtime.
+ExternalProject_Add(opus
+    SOURCE_DIR "${AOS_SDK_SOURCE_DIR}/external/opus"
+    CMAKE_ARGS ${AOS_PORT_ARGS}
+        -DOPUS_BUILD_PROGRAMS=OFF
+        -DOPUS_STACK_PROTECTOR=OFF
+        -DOPUS_INSTALL_PKG_CONFIG_MODULE=OFF
+        -DOPUS_INSTALL_CMAKE_CONFIG_MODULE=ON)

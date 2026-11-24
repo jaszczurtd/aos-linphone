@@ -3,7 +3,7 @@
 # needs, into one prefix:
 #
 #   1. the compatibility layer (compat/) -> libaosnet, libaoscompat, libdl
-#   2. the third-party ports (deps/)     -> jsoncpp, speex, libxml2, mbedtls
+#   2. the third-party ports (deps/)     -> jsoncpp, speex, libxml2, mbedtls, srtp, opus
 #   3. the patches (patches/apply.sh)    -> applied to third_party/linphone-sdk
 #   4. the SDK (third_party/linphone-sdk with sdk/aros-sdk.cmake)
 #
@@ -44,7 +44,7 @@ fi
 # framework submodule to configure.
 git -C "$repo" submodule update --init third_party/linphone-sdk
 git -C "$sdk" submodule update --init external/jsoncpp external/libxml2 \
-    external/speex external/mbedtls
+    external/speex external/mbedtls external/srtp external/opus
 git -C "$sdk/external/mbedtls" submodule update --init framework
 
 version=()

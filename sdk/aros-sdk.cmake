@@ -9,9 +9,9 @@
 #         -DCMAKE_TOOLCHAIN_FILE=<repo>/cmake/aros-x86_64.cmake \
 #         -DAROS_TOOLCHAIN_DIR=<toolchain>
 #
-# The configuration is the minimal one: SIP signalling, plain chat and audio
-# with G.711, G.722, L16 and Speex; no video, no encryption of media, no
-# database, no tools or tests.
+# The configuration is a small one: SIP signalling, plain chat, audio with
+# G.711, G.722, L16, Speex and Opus, and SRTP media encryption; no video, no
+# ZRTP, no database, no tools or tests.
 
 if(NOT AOS_PREFIX)
     message(FATAL_ERROR "pass -DAOS_PREFIX=<prefix> before -C aros-sdk.cmake")
@@ -40,17 +40,19 @@ set(Iconv_IS_BUILT_IN FALSE CACHE BOOL "")
 set(Iconv_INCLUDE_DIR "${AOS_PREFIX}/include" CACHE PATH "")
 set(Iconv_LIBRARY "${AOS_PREFIX}/lib/libaoscompat.a" CACHE FILEPATH "")
 
-# zlib from the AROS SDK, jsoncpp, speex, libxml2 and mbedtls from deps/,
-# instead of the SDK building its own submodules. No SQLite.
-foreach(lib JSONCPP LIBXML2 SPEEX MBEDTLS ZLIB SQLITE3)
+# zlib from the AROS SDK, jsoncpp, speex, libxml2, mbedtls, libsrtp and opus
+# from deps/, instead of the SDK building its own submodules. No SQLite.
+foreach(lib JSONCPP LIBXML2 SPEEX MBEDTLS LIBSRTP2 OPUS ZLIB SQLITE3)
     set(BUILD_${lib} OFF CACHE BOOL "")
 endforeach()
 
 set(ENABLE_MBEDTLS ON CACHE BOOL "")
 set(ENABLE_OPENSSL OFF CACHE BOOL "")
 set(ENABLE_SPEEX ON CACHE BOOL "")
+set(ENABLE_OPUS ON CACHE BOOL "")
 set(ENABLE_XML2 ON CACHE BOOL "")
 set(ENABLE_SQLITE OFF CACHE BOOL "")
+set(ENABLE_SRTP ON CACHE BOOL "")
 
 # No sound backend of mediastreamer2 exists for AROS; the sound card API
 # (mssndcard.c) and file playback stay in, and the AROS sound card is
@@ -59,9 +61,9 @@ set(ENABLE_SOUND OFF CACHE BOOL "")
 
 foreach(opt
         STRICT DOC TOOLS TESTS_COMPONENT UNIT_TESTS ASSETS
-        BAUDOT BV16 GSM MKV OPUS WEBRTC_AEC WEBRTC_VAD RNNOISE
+        BAUDOT BV16 GSM MKV WEBRTC_AEC WEBRTC_VAD RNNOISE
         VIDEO ADVANCED_IM XERCESC DAEMON DB_STORAGE FLEXIAPI HIDAPI
-        VCARD DECAF LIME LIME_X3DH SRTP ZRTP GOCLEAR PQCRYPTO
+        VCARD DECAF LIME LIME_X3DH ZRTP GOCLEAR PQCRYPTO
         ALSA PULSEAUDIO PORTAUDIO QSA OSS)
     set(ENABLE_${opt} OFF CACHE BOOL "")
 endforeach()

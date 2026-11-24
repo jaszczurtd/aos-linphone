@@ -27,7 +27,7 @@ The audio and video devices come next.
 | `cmake/` | CMake toolchain file and platform description for AROS x86_64 |
 | `third_party/linphone-sdk` | upstream linphone-sdk, pinned as a submodule |
 | `patches/` | source changes applied to the submodule, see [patches/README.md](patches/README.md) |
-| `deps/` | ports of the libraries the SDK needs: jsoncpp, speex, libxml2, mbedtls |
+| `deps/` | ports of the libraries the SDK needs: jsoncpp, speex, libxml2, mbedtls, libsrtp, opus |
 | `sdk/` | SDK build settings and documentation |
 | `scripts/` | `build-sdk.sh`, which builds and installs everything above |
 | `apps/aos-register/` | SIP registration test program, see [its README](apps/aos-register/README.md) |
@@ -165,6 +165,12 @@ Behaviour of the library:
   system heap gets corrupted and AROS fails after a while. Restart AROS
   between longer test series on machines with an Intel PRO/1000 adapter,
   including QEMU's `e1000` model.
+- The initial task of a program has the pthread id 0, which belle-sip and
+  liblinphone take to mean "no thread": belle-sip then never frees its
+  pools of unowned objects, and memory grows with SIP traffic. Run the
+  linphone core in a thread started with `pthread_create()`, which gets an
+  id of 1 or more, with a stack of about 1 MiB; `aos-register` and
+  `aos-phone` do so.
 
 ## Committing changes
 

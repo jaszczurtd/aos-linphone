@@ -33,7 +33,4 @@ submodules, so `git -C third_party/linphone-sdk diff` shows all of them.
 |---|---|
 | `0001-bctoolbox-thread-name-else.patch` | `bctbx_set_self_thread_name()` ends its platform chain with a bare `#elif`, which GCC rejects on systems that are neither Linux, Apple nor Windows. |
 | `0002-liblinphone-paths-aros.patch` | liblinphone picks its data and config paths per platform and stops with `#error` on any other system; AROS uses the Linux variant (`$HOME`, falling back to the current directory). |
-| `0003-mediastreamer2-srtp-stub-signatures.patch` | Without libsrtp, three SRTP stubs in `ms_srtp.cpp` take parameter types that differ from their declarations in `ms_srtp.h`. |
 | `0004-bctoolbox-config-bcunit-only-with-tester.patch` | The installed `BCToolboxConfig.cmake` of a static build always looks for BCUnit, even when the tester library is not built, so programs linking the SDK fail to configure. |
-| `0005-mediastreamer2-crypto-suite-name-without-srtp.patch` | `ms_crypto_suite_to_string()` is defined only when libsrtp is used, but liblinphone calls it in any build; the function does not need libsrtp. |
-| `0006-bctoolbox-belle-sip-nonzero-thread-id-aros.patch` | AROS gives the initial task the pthread id 0, while belle-sip, liblinphone and the bctoolbox logger take a thread id of 0 to mean "none". belle-sip then never frees its pools of unowned objects. On AROS both thread id helpers return `pthread_self() + 1`. |
