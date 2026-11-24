@@ -13,10 +13,10 @@ The work is at an early stage. What exists today:
   [sdk/README.md](sdk/README.md);
 - `aos-register`, a console program that registers a SIP account from AROS;
 - `aos-phone`, the Zune client: account registration, calls and text chat,
-  see [its README](apps/aos-phone/README.md). Calls carry no sound yet,
-  because AROS has no sound device for mediastreamer2 so far.
+  see [its README](apps/aos-phone/README.md). It plays the sound of calls
+  and the ring tone through AHI, but does not record yet.
 
-The audio and video devices come next.
+Recording from the microphone and video come next.
 
 ## Layout
 
@@ -30,6 +30,7 @@ The audio and video devices come next.
 | `deps/` | ports of the libraries the SDK needs: jsoncpp, speex, libxml2, mbedtls, libsrtp, opus |
 | `sdk/` | SDK build settings and documentation |
 | `scripts/` | `build-sdk.sh`, which builds and installs everything above |
+| `devices/` | devices for mediastreamer2: the AHI sound card |
 | `apps/aos-register/` | SIP registration test program, see [its README](apps/aos-register/README.md) |
 | `apps/aos-phone/` | the Zune SIP client, see [its README](apps/aos-phone/README.md) |
 | `tools/` | host tools for the tests: `sip-registrar` |

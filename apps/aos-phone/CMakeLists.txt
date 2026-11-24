@@ -26,10 +26,13 @@ endforeach()
 
 set(AOS_PHONE_WARNINGS -Wall -Wextra -Werror)
 
+# The device layer: the AHI sound card.
+add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/../../devices ${CMAKE_CURRENT_BINARY_DIR}/devices)
+
 # The core thread: the only code that calls liblinphone.
 add_library(aos_phone_core STATIC src/core.c src/queue.c)
 target_compile_options(aos_phone_core PRIVATE ${AOS_PHONE_WARNINGS})
-target_link_libraries(aos_phone_core PRIVATE liblinphone)
+target_link_libraries(aos_phone_core PRIVATE liblinphone aos_devices)
 
 add_executable(aos-phone src/main.c src/gui.c src/text.c)
 target_compile_options(aos-phone PRIVATE ${AOS_PHONE_WARNINGS})

@@ -6,6 +6,8 @@
 #include "core.h"
 #include "queue.h"
 
+#include "ahi/ahi_sound.h"
+
 #include "aos/net.h"
 
 #include <linphone/core.h>
@@ -578,6 +580,27 @@ static void push_started(void) {
     push_event(&event);
 }
 
+/* The core chooses its sound devices before the AHI card exists. Reloading
+   them makes the card the default playback device but keeps the empty list
+   of ring devices: when no device rings, ring on the first one that plays. */
+static void choose_ring_device(void) {
+    CORE_THREAD_ONLY();
+    bctbx_list_t *devices = linphone_core_get_extended_audio_devices(g.core);
+    LinphoneAudioDevice *player = NULL;
+    int ringing = 0;
+    for (const bctbx_list_t *it = devices; it != NULL; it = bctbx_list_next(it)) {
+        LinphoneAudioDevice *device = bctbx_list_get_data(it);
+        ringing |= linphone_audio_device_get_use_for_ringing(device);
+        if (player == NULL && linphone_audio_device_has_capability(device, LinphoneAudioDeviceCapabilityPlay)) {
+            player = device;
+        }
+    }
+    if (!ringing && player != NULL) {
+        linphone_audio_device_set_use_for_ringing(player, TRUE);
+    }
+    bctbx_list_free_with_data(devices, (bctbx_list_free_func)linphone_audio_device_unref);
+}
+
 static int create_core(void) {
     CORE_THREAD_ONLY();
     g.factory = linphone_factory_get();
@@ -602,6 +625,10 @@ static int create_core(void) {
     }
     linphone_core_enable_ipv6(g.core, FALSE); /* AROSTCP cannot send to IPv4-mapped addresses */
     linphone_core_set_user_agent(g.core, "aos-phone", "0.1");
+
+    aos_ahi_register(linphone_core_get_ms_factory(g.core));
+    linphone_core_reload_sound_devices(g.core);
+    choose_ring_device();
 
     /* SIP over UDP only, on the configured port or a random one. */
     LinphoneTransports *transports = linphone_factory_create_transports(g.factory);

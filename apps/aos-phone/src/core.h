@@ -84,7 +84,7 @@ struct aos_core_event {
 
 struct aos_core_config {
     const char *data_dir;      /* configuration and data of the core */
-    const char *resources_dir; /* holds belr/grammars */
+    const char *resources_dir; /* holds belr/grammars and sounds/linphone */
     int sip_port;              /* UDP port for SIP; 0: a random one */
     /* Called in the core thread after each new event. */
     void (*notify)(void *context);

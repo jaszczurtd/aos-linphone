@@ -14,7 +14,8 @@
  * types DATA and PORT. Its output then goes nowhere, unless the tool type
  * DEBUG asks for a console window.
  *
- * The SIP parsers read their grammars from PROGDIR:share/belr/grammars.
+ * The SIP parsers read their grammars from PROGDIR:share/belr/grammars,
+ * and the ring tones come from PROGDIR:share/sounds/linphone.
  * The program prints what happens to its standard output and offers the
  * ARexx port AOSPHONE.1; see README.md.
  *

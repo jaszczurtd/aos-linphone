@@ -2,9 +2,8 @@
 
 A SIP phone for AROS with a Zune interface, built on liblinphone. It
 registers an account, makes and answers calls and exchanges text messages.
-Calls connect, but carry no sound yet: AROS has no sound device for
-mediastreamer2 so far, so the program sends silence and drops what it
-receives.
+You hear the other side and the ring tone through AHI, but the program
+does not record yet: the other side hears silence.
 
 ```
 aos-phone [DATA=<directory>] [PORT=<number>]
@@ -21,6 +20,18 @@ The program needs AROSTCP running and the belr grammars in
 `share/belr/grammars/` next to it, as `aos-register` does (see
 [its README](../aos-register/README.md#running)). It prints what happens
 to its standard output.
+
+Sound goes to the default unit of `ahi.device`, which you choose in the AHI
+preferences. The ring tone and the tone you hear while the other side
+rings are files that the SDK build does not install; copy them from the
+submodule next to the program:
+
+| From `third_party/linphone-sdk/liblinphone/share/` | To |
+|---|---|
+| `rings/oldphone-mono.wav` | `share/sounds/linphone/rings/oldphone-mono.wav` |
+| `ringback.wav` | `share/sounds/linphone/ringback.wav` |
+
+Without them the calls work, but nothing rings.
 
 Started from its icon, `aos-phone` takes the same settings from the tool
 types `DATA` and `PORT`. Its output then goes nowhere, so no window opens
@@ -125,6 +136,7 @@ the [main README](../../README.md#running-the-tests)), CTest runs
 | `src/cmd.c` | `aos-phone-cmd` |
 | `icons/` | the image and description of the Workbench icon |
 | `tests/test_queue.c` | tests of the queues, run on AROS |
+| `../../devices/ahi/` | the AHI sound card for mediastreamer2, shared with other programs |
 
 The core thread creates the linphone core and makes every liblinphone call,
 including the callbacks; each such function checks that it runs in that
@@ -132,3 +144,9 @@ thread and stops the program otherwise. The interface copies commands into
 one queue and takes events from the other. After each event the core
 thread sends an Exec signal, which the interface handles as a Zune input
 handler, so events also arrive while a nested Zune loop runs.
+
+The core thread registers the AHI card with mediastreamer2 right after it
+creates the core. Each sound that plays, the call or the ring tone, gets
+its own filter with a writer thread, which opens `ahi.device` and keeps
+two linked 40 ms writes going. The filter only queues the samples, so the
+mediastreamer2 ticker does not wait for the device.
