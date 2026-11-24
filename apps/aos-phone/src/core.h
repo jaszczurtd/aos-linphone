@@ -66,6 +66,9 @@ enum aos_event_type {
     /* Delivery state of a sent message. id: as returned by
        aos_core_send_message(), state, peer. */
     AOS_EVENT_MESSAGE_STATE,
+    /* A connected call is being recorded. id, text: the file, in the
+       system code page. */
+    AOS_EVENT_RECORDING,
     /* A request could not be carried out. text: what failed. */
     AOS_EVENT_ERROR,
     /* id events were dropped because the event queue stayed full. */
@@ -86,6 +89,9 @@ struct aos_core_config {
     const char *data_dir;      /* configuration and data of the core */
     const char *resources_dir; /* holds belr/grammars and sounds/linphone */
     int sip_port;              /* UDP port for SIP; 0: a random one */
+    /* Directory where each call is recorded to a WAV file, both sides
+       mixed; NULL or "": no recording. */
+    const char *record_dir;
     /* Called in the core thread after each new event. */
     void (*notify)(void *context);
     void *context;
@@ -118,6 +124,14 @@ int aos_core_answer(int call_id);
 /* Declines an incoming call or ends any other; call_id 0 means the current
    call. */
 int aos_core_hangup(int call_id);
+
+/* Plays a WAV file to the other party of a connected call, mixed into
+   what the call sends; a file already playing stops. call_id 0 means the
+   current call. file is a path in the system code page. Fails (as an
+   AOS_EVENT_ERROR) once the sound of the call has been restarted, e.g.
+   after a pause, because liblinphone keeps a player for the first sound
+   stream of the call only. */
+int aos_core_play(int call_id, const char *file);
 
 /* Sends a text message. Returns its id (1 or more) for the
    AOS_EVENT_MESSAGE_STATE events, or -1. */

@@ -59,6 +59,7 @@ enum rexx_command {
     RX_CALL,
     RX_ANSWER,
     RX_HANGUP,
+    RX_PLAY,
     RX_SEND,
     RX_STATUS,
     RX_QUIT,
@@ -118,6 +119,7 @@ static struct MUI_Command rexx_commands[] = {
     {"CALL", "ADDRESS/A", 1, &gui.rexx_hooks[RX_CALL], {0}},
     {"ANSWER", NULL, 0, &gui.rexx_hooks[RX_ANSWER], {0}},
     {"HANGUP", NULL, 0, &gui.rexx_hooks[RX_HANGUP], {0}},
+    {"PLAY", "FILE/A/F", 1, &gui.rexx_hooks[RX_PLAY], {0}},
     {"SEND", "TO/A,TEXT/A/F", 2, &gui.rexx_hooks[RX_SEND], {0}},
     {"STATUS", NULL, 0, &gui.rexx_hooks[RX_STATUS], {0}},
     {"QUIT", NULL, 0, &gui.rexx_hooks[RX_QUIT], {0}},
@@ -416,6 +418,16 @@ static IPTR do_hangup(void) {
     return TRUE;
 }
 
+/* Plays a file to the call in the call window, or else the current call. */
+static IPTR do_play(const char *file) {
+    int id = gui.shown.id != 0 && gui.shown.state == AOS_CALL_CONNECTED ? gui.shown.id : 0;
+    if (aos_core_play(id, file) != 0) {
+        status("the core is busy; try again");
+        return FALSE;
+    }
+    return TRUE;
+}
+
 static IPTR do_show_call(void) {
     IPTR row = MUIV_List_Active_Off;
     get(gui.calls_list, MUIA_List_Active, &row);
@@ -674,6 +686,13 @@ static void on_event(const struct aos_core_event *event) {
             chat_line(chat, "!", "the last message was not delivered");
         }
         break;
+    case AOS_EVENT_RECORDING: {
+        /* status() takes UTF-8; the file name is in the system code page. */
+        char file[AOS_CORE_TEXT_MAX];
+        aos_text_to_utf8(event->text, file, sizeof(file));
+        status("recording call %d to %s", event->id, file);
+        break;
+    }
     case AOS_EVENT_ERROR:
         status("%s", event->text);
         break;
@@ -718,6 +737,7 @@ static IPTR do_rexx(int command, IPTR *args) {
         break;
     case RX_ANSWER: ok = do_answer(); break;
     case RX_HANGUP: ok = do_hangup(); break;
+    case RX_PLAY: ok = do_play((const char *)args[0]); break;
     case RX_SEND: {
         aos_text_to_utf8((const char *)args[0], a, sizeof(a));
         aos_text_to_utf8((const char *)args[1], b, sizeof(b));

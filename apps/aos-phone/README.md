@@ -2,11 +2,12 @@
 
 A SIP phone for AROS with a Zune interface, built on liblinphone. It
 registers an account, makes and answers calls and exchanges text messages.
-You hear the other side and the ring tone through AHI, but the program
-does not record yet: the other side hears silence.
+You hear the other side and the ring tone through AHI. The program does
+not take sound from a microphone yet: the other side hears silence, or a
+sound file you play into the call. Calls can also be recorded to files.
 
 ```
-aos-phone [DATA=<directory>] [PORT=<number>]
+aos-phone [DATA=<directory>] [PORT=<number>] [RECORD=<directory>]
 ```
 
 - `DATA`: where the program keeps its settings, including the account and
@@ -15,6 +16,10 @@ aos-phone [DATA=<directory>] [PORT=<number>]
 - `PORT`: the UDP port for SIP; by default a random free one. A fixed port
   helps when others call this computer by its IP address, without a SIP
   server.
+- `RECORD`: records every call to a WAV file in this directory, both sides
+  mixed, from the moment the call connects; by default nothing is recorded.
+  The program creates the directory when it is missing and names the files
+  `call-<date>-<time>-<n>.wav`.
 
 The program needs AROSTCP running and the belr grammars in
 `share/belr/grammars/` next to it, as `aos-register` does (see
@@ -34,11 +39,11 @@ submodule next to the program:
 Without them the calls work, but nothing rings.
 
 Started from its icon, `aos-phone` takes the same settings from the tool
-types `DATA` and `PORT`. Its output then goes nowhere, so no window opens
-for it. The tool type `DEBUG` shows the output in a console window, which
-stays open after the program ends until you close it. The icon comes with
-all three tool types switched off, in parentheses: remove the parentheses
-in the icon information to switch one on. When the program cannot start
+types `DATA`, `PORT` and `RECORD`. Its output then goes nowhere, so no
+window opens for it. The tool type `DEBUG` shows the output in a console
+window, which stays open after the program ends until you close it. The
+icon comes with all four tool types switched off, in parentheses: remove
+the parentheses in the icon information to switch one on. When the program cannot start
 from its icon (no network, for one), it says why in a requester.
 
 ## Using it
@@ -82,12 +87,19 @@ The port `AOSPHONE.1` takes these commands; they do what the buttons do:
 | `CALL <address>` | calls the address |
 | `ANSWER` | answers the call in the call window, or the first incoming call |
 | `HANGUP` | declines or ends the call in the call window, or the current call |
+| `PLAY <file>` | plays a WAV file to the other side of the connected call in the call window, or of the current call |
 | `SEND <address> <text>` | sends a text message and shows it in its chat window |
 | `STATUS` | returns the state, e.g. `registered\|port 5060\|call 1 connected sip:bob@example.org` |
 | `QUIT` | ends the program |
 
 A command returns 0, or 10 when it could not be passed on. Its `RESULT` is
 the state for `STATUS` and `OK` or `ERROR` for the others.
+
+`PLAY` mixes the file into what the call sends; a new `PLAY` replaces the
+file still playing. The file may have any sample rate. After the call has
+been paused, resumed or renegotiated, `PLAY` refuses with a message in the
+status line: liblinphone keeps the player of the first sound stream of the
+call, which such a change replaces.
 
 `aos-phone-cmd` sends one command to the port and prints the result,
 without an ARexx interpreter:

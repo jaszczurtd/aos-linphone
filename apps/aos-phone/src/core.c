@@ -39,6 +39,7 @@ enum command_type {
     CMD_CALL,
     CMD_ANSWER,
     CMD_HANGUP,
+    CMD_PLAY,
     CMD_MESSAGE,
     CMD_STOP
 };
@@ -49,13 +50,15 @@ struct command {
     char address[AOS_CORE_ADDR_MAX]; /* identity, callee or message peer */
     char server[AOS_CORE_ADDR_MAX];
     char password[PASSWORD_MAX];
-    char text[AOS_CORE_TEXT_MAX];
+    char text[AOS_CORE_TEXT_MAX]; /* message, or file to play */
 };
 
 struct call_slot {
     int id; /* 0: free */
     int state;
     LinphoneCall *call;
+    int runs;        /* times the call entered StreamsRunning */
+    int player_runs; /* runs when the call player was first taken; 0: never */
 };
 
 struct message_slot {
@@ -82,6 +85,7 @@ static struct {
     struct aos_core_config config;
     char data_dir[PATH_MAX_LEN];
     char resources_dir[PATH_MAX_LEN];
+    char record_dir[PATH_MAX_LEN];
 
     /* Core thread only. */
     pthread_t self;
@@ -90,6 +94,7 @@ static struct {
     struct call_slot calls[AOS_CORE_MAX_CALLS];
     struct message_slot messages[MAX_MESSAGES];
     int next_call_id;
+    int recordings; /* recording files named so far */
     unsigned lost;
     int stop;
 } g;
@@ -256,6 +261,60 @@ static int map_call_state(LinphoneCallState state) {
     }
 }
 
+/* Writes dir and name joined as an AmigaDOS path: no '/' after a volume
+   or assign name ("RAM:"), whose parent "RAM:/" does not exist. */
+static void join_path(char *dst, size_t size, const char *dir, const char *name) {
+    copy_text(dst, size, dir);
+    size_t n = strlen(dst);
+    if (n > 0 && dst[n - 1] != ':' && dst[n - 1] != '/' && n + 1 < size) {
+        dst[n++] = '/';
+        dst[n] = '\0';
+    }
+    copy_text(dst + n, size - n, name);
+}
+
+/* Parameters to start or answer a call with: they name a new recording
+   file when the configuration gives a directory for recordings. */
+static LinphoneCallParams *create_params(LinphoneCall *call) {
+    CORE_THREAD_ONLY();
+    LinphoneCallParams *params = linphone_core_create_call_params(g.core, call);
+    if (params != NULL && g.record_dir[0] != '\0') {
+        time_t now = time(NULL);
+        struct tm local;
+        char stamp[16], name[48], path[PATH_MAX_LEN + 48];
+        localtime_r(&now, &local);
+        strftime(stamp, sizeof(stamp), "%Y%m%d-%H%M%S", &local);
+        snprintf(name, sizeof(name), "call-%s-%d.wav", stamp, ++g.recordings);
+        join_path(path, sizeof(path), g.record_dir, name);
+        linphone_call_params_set_record_file(params, path);
+    }
+    return params;
+}
+
+/* Starts recording a call that has just connected, when its parameters
+   name a file. liblinphone resumes the recording by itself after a restart
+   of the sound stream and stops it when the call ends. */
+static void start_recording(struct call_slot *slot) {
+    CORE_THREAD_ONLY();
+    /* Copy the name first: the string belongs to the call parameters, which
+       starting the recording may replace. */
+    struct aos_core_event event;
+    event_init(&event, AOS_EVENT_RECORDING);
+    event.id = slot->id;
+    copy_text(event.text, sizeof(event.text),
+              linphone_call_params_get_record_file(linphone_call_get_params(slot->call)));
+    if (event.text[0] == '\0') {
+        return;
+    }
+    linphone_call_start_recording(slot->call);
+    /* The recorder creates the file when it starts. */
+    if (access(event.text, F_OK) != 0) {
+        push_error("the call could not be recorded");
+        return;
+    }
+    push_event(&event);
+}
+
 static void on_call_state(LinphoneCore *core, LinphoneCall *call, LinphoneCallState state, const char *message) {
     (void)core;
     CORE_THREAD_ONLY();
@@ -290,6 +349,9 @@ static void on_call_state(LinphoneCore *core, LinphoneCall *call, LinphoneCallSt
         copy_address(event.peer, sizeof(event.peer), linphone_call_get_remote_address(call));
         copy_text(event.text, sizeof(event.text), message);
         push_event(&event);
+    }
+    if (state == LinphoneCallStateStreamsRunning && ++slot->runs == 1) {
+        start_recording(slot);
     }
     if (state == LinphoneCallStateReleased) {
         free_call(slot);
@@ -406,8 +468,12 @@ static void do_call(const struct command *cmd) {
         push_error("invalid address to call");
         return;
     }
-    if (linphone_core_invite_address(g.core, address) == NULL) {
+    LinphoneCallParams *params = create_params(NULL);
+    if (params == NULL || linphone_core_invite_address_with_params(g.core, address, params) == NULL) {
         push_error("the call could not be started");
+    }
+    if (params != NULL) {
+        linphone_call_params_unref(params);
     }
     linphone_address_unref(address);
 }
@@ -428,8 +494,12 @@ static void do_answer(int id) {
         push_error("no incoming call to answer");
         return;
     }
-    if (linphone_call_accept(slot->call) != 0) {
+    LinphoneCallParams *params = create_params(slot->call);
+    if (params == NULL || linphone_call_accept_with_params(slot->call, params) != 0) {
         push_error("the call could not be answered");
+    }
+    if (params != NULL) {
+        linphone_call_params_unref(params);
     }
 }
 
@@ -450,6 +520,36 @@ static void do_hangup(int id) {
         linphone_call_decline(slot->call, LinphoneReasonDeclined);
     } else {
         linphone_call_terminate(slot->call);
+    }
+}
+
+static void do_play(const struct command *cmd) {
+    CORE_THREAD_ONLY();
+    struct call_slot *slot = NULL;
+    if (cmd->id != 0) {
+        slot = find_call_id(cmd->id);
+    } else {
+        LinphoneCall *current = linphone_core_get_current_call(g.core);
+        slot = current != NULL ? find_call(current) : NULL;
+    }
+    if (slot == NULL || linphone_call_get_state(slot->call) != LinphoneCallStateStreamsRunning) {
+        push_error("no connected call to play the file to");
+        return;
+    }
+    /* liblinphone creates the call player once, on the sound stream of that
+       moment, and keeps it when a restart of the sound replaces the stream:
+       the player must not be touched after that. */
+    if (slot->player_runs == 0) {
+        slot->player_runs = slot->runs;
+    }
+    if (slot->player_runs != slot->runs) {
+        push_error("the sound of the call was restarted; files cannot be played to it any more");
+        return;
+    }
+    LinphonePlayer *player = linphone_call_get_player(slot->call);
+    /* Opening closes the file played before. */
+    if (player == NULL || linphone_player_open(player, cmd->text) != 0 || linphone_player_start(player) != 0) {
+        push_error("the file could not be played to the call");
     }
 }
 
@@ -616,6 +716,9 @@ static int create_core(void) {
     snprintf(cache_dir, sizeof(cache_dir), "%s/cache", g.data_dir);
     mkdir(cache_dir, 0755);
     linphone_factory_set_cache_dir(g.factory, cache_dir);
+    if (g.record_dir[0] != '\0') {
+        mkdir(g.record_dir, 0755); /* fails harmlessly when it exists */
+    }
 
     char config_path[PATH_MAX_LEN + 16];
     snprintf(config_path, sizeof(config_path), "%s/linphonerc", g.data_dir);
@@ -671,6 +774,7 @@ static void run_command(struct command *cmd) {
     case CMD_CALL: do_call(cmd); break;
     case CMD_ANSWER: do_answer(cmd->id); break;
     case CMD_HANGUP: do_hangup(cmd->id); break;
+    case CMD_PLAY: do_play(cmd); break;
     case CMD_MESSAGE: do_message(cmd); break;
     case CMD_STOP: g.stop = 1; break;
     }
@@ -745,6 +849,7 @@ int aos_core_start(const struct aos_core_config *config) {
     g.config = *config;
     copy_text(g.data_dir, sizeof(g.data_dir), config->data_dir);
     copy_text(g.resources_dir, sizeof(g.resources_dir), config->resources_dir);
+    copy_text(g.record_dir, sizeof(g.record_dir), config->record_dir);
     g.finished = 0;
     g.stop = 0;
     if (aos_queue_init(&g.commands, g.command_storage, sizeof(struct command), COMMAND_CAPACITY) != 0) {
@@ -838,6 +943,15 @@ int aos_core_answer(int call_id) {
 
 int aos_core_hangup(int call_id) {
     return simple_command(CMD_HANGUP, call_id, NULL);
+}
+
+int aos_core_play(int call_id, const char *file) {
+    struct command cmd;
+    memset(&cmd, 0, sizeof(cmd));
+    cmd.type = CMD_PLAY;
+    cmd.id = call_id;
+    copy_text(cmd.text, sizeof(cmd.text), file);
+    return push_command(&cmd);
 }
 
 int aos_core_send_message(const char *peer, const char *text) {

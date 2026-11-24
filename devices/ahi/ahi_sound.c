@@ -15,6 +15,7 @@
 #include <proto/exec.h>
 
 #include <pthread.h>
+#include <sched.h>
 #include <string.h>
 
 #define BLOCK_MS      40          /* length of one CMD_WRITE */
@@ -148,6 +149,13 @@ static void ahi_write_preprocess(MSFilter *f) {
     pthread_attr_t attr;
     pthread_attr_init(&attr);
     pthread_attr_setstacksize(&attr, WRITER_STACK);
+    /* The priority mediastreamer2 gives its MSTicker threads, the top of the
+       SCHED_RR range: otherwise the writer gets the priority of the thread
+       that starts the stream, and the ticker can starve it. */
+    struct sched_param param;
+    memset(&param, 0, sizeof(param));
+    param.sched_priority = sched_get_priority_max(SCHED_RR);
+    pthread_attr_setschedparam(&attr, &param);
     out->running = pthread_create(&out->thread, &attr, writer_main, out) == 0;
     pthread_attr_destroy(&attr);
     if (!out->running) {

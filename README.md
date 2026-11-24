@@ -14,9 +14,10 @@ The work is at an early stage. What exists today:
 - `aos-register`, a console program that registers a SIP account from AROS;
 - `aos-phone`, the Zune client: account registration, calls and text chat,
   see [its README](apps/aos-phone/README.md). It plays the sound of calls
-  and the ring tone through AHI, but does not record yet.
+  and the ring tone through AHI, plays sound files into calls and records
+  calls, but does not take sound from a microphone yet.
 
-Recording from the microphone and video come next.
+The microphone and video come next.
 
 ## Layout
 

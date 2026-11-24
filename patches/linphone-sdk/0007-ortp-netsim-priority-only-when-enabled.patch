@@ -1,0 +1,15 @@
+diff --git a/ortp/src/netsim.c b/ortp/src/netsim.c
+index 4d725f3ccf..858a4b2618 100644
+--- a/ortp/src/netsim.c
++++ b/ortp/src/netsim.c
+@@ -166,9 +166,9 @@ OrtpNetworkSimulatorMode ortp_network_simulator_mode_from_string(const char *str
+ }
+ 
+ void rtp_session_enable_network_simulation(RtpSession *session, const OrtpNetworkSimulatorParams *params) {
+-	set_high_prio();
+ 	OrtpNetworkSimulatorCtx *sim = session->net_sim_ctx;
+ 	if (params->enabled) {
++		set_high_prio();
+ 		if (sim == NULL) {
+ 			sim = simulator_ctx_new();
+ 		} else {
