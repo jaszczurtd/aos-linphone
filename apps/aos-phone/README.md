@@ -22,6 +22,14 @@ The program needs AROSTCP running and the belr grammars in
 [its README](../aos-register/README.md#running)). It prints what happens
 to its standard output.
 
+Started from its icon, `aos-phone` takes the same settings from the tool
+types `DATA` and `PORT`. Its output then goes nowhere, so no window opens
+for it. The tool type `DEBUG` shows the output in a console window, which
+stays open after the program ends until you close it. The icon comes with
+all three tool types switched off, in parentheses: remove the parentheses
+in the icon information to switch one on. When the program cannot start
+from its icon (no network, for one), it says why in a requester.
+
 ## Using it
 
 The main window shows the account, an address field and the list of
@@ -82,11 +90,17 @@ Then configure with the same prefix, toolchain file and initial cache:
 cmake -S apps/aos-phone -B build-phone -G Ninja \
       -DAOS_PREFIX=<prefix> -C sdk/aros-sdk.cmake \
       -DCMAKE_TOOLCHAIN_FILE=<repo>/cmake/aros-x86_64.cmake \
-      -DAROS_TOOLCHAIN_DIR=<toolchain>
+      -DAROS_TOOLCHAIN_DIR=<toolchain> \
+      -DAOS_ILBMTOICON=<AROS build>/bin/<host>/tools/ilbmtoicon
 cmake --build build-phone
 ```
 
-The build gives `aos-phone`, `aos-phone-cmd` and `test_queue`. With
+The build gives `aos-phone`, `aos-phone.info`, `aos-phone-cmd` and
+`test_queue`. `aos-phone.info` is the Workbench icon; copy it next to the
+program. `ilbmtoicon` is a host tool built with AROS itself; without
+`AOS_ILBMTOICON` (or `ilbmtoicon` in the `PATH`) the build skips the icon.
+The icon is made from `icons/aos-phone.png` and `icons/aos-phone.info.src`,
+which also holds its stack size and tool types. With
 `-DAOS_TEST_RUNNER=...`, as for the tests of the compatibility layer (see
 the [main README](../../README.md#running-the-tests)), CTest runs
 `test_queue` on AROS.
@@ -99,8 +113,9 @@ the [main README](../../README.md#running-the-tests)), CTest runs
 | `src/queue.c`, `src/queue.h` | the fixed-size queues for commands and events between the two threads |
 | `src/gui.c`, `src/gui.h` | the Zune windows, the ARexx port and the handling of core events |
 | `src/text.c`, `src/text.h` | conversion between UTF-8 and the system code page |
-| `src/main.c` | arguments and start-up |
+| `src/main.c` | arguments, tool types and start-up |
 | `src/cmd.c` | `aos-phone-cmd` |
+| `icons/` | the image and description of the Workbench icon |
 | `tests/test_queue.c` | tests of the queues, run on AROS |
 
 The core thread creates the linphone core and makes every liblinphone call,

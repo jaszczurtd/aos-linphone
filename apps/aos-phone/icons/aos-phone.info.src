@@ -1,0 +1,8 @@
+# Workbench icon of aos-phone, for the AROS host tool ilbmtoicon:
+#   ilbmtoicon aos-phone.info.src aos-phone.png aos-phone.info
+# Tool types in parentheses are off; remove the parentheses to use one.
+TYPE = TOOL
+STACK = 262144
+TOOLTYPE = (DEBUG)
+TOOLTYPE = (PORT=5060)
+TOOLTYPE = (DATA=PROGDIR:aos-phone-data)

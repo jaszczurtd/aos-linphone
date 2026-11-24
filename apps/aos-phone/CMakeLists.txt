@@ -33,9 +33,27 @@ target_link_libraries(aos_phone_core PRIVATE liblinphone)
 
 add_executable(aos-phone src/main.c src/gui.c src/text.c)
 target_compile_options(aos-phone PRIVATE ${AOS_PHONE_WARNINGS})
-target_link_libraries(aos-phone PRIVATE aos_phone_core mui)
+target_link_libraries(aos-phone PRIVATE aos_phone_core mui icon)
 # liblinphone is C++: link with g++ so that libstdc++ comes along.
 set_target_properties(aos-phone PROPERTIES LINKER_LANGUAGE CXX)
+
+# The Workbench icon, made by the AROS host tool ilbmtoicon (built with AROS,
+# in bin/<host>/tools of the AROS build directory). Without it the program
+# builds without an icon.
+find_program(AOS_ILBMTOICON ilbmtoicon DOC "AROS host tool ilbmtoicon, which builds aos-phone.info")
+if(AOS_ILBMTOICON)
+    set(icon_dir ${CMAKE_CURRENT_SOURCE_DIR}/icons)
+    add_custom_command(
+        OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/aos-phone.info
+        COMMAND ${AOS_ILBMTOICON} ${icon_dir}/aos-phone.info.src ${icon_dir}/aos-phone.png
+                ${CMAKE_CURRENT_BINARY_DIR}/aos-phone.info
+        DEPENDS ${icon_dir}/aos-phone.info.src ${icon_dir}/aos-phone.png
+        COMMENT "Creating aos-phone.info"
+        VERBATIM)
+    add_custom_target(aos-phone-icon ALL DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/aos-phone.info)
+else()
+    message(STATUS "ilbmtoicon not found (AOS_ILBMTOICON): aos-phone.info is not built")
+endif()
 
 # Sends a command to the ARexx port of aos-phone without an ARexx interpreter.
 add_executable(aos-phone-cmd src/cmd.c)

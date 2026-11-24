@@ -587,6 +587,12 @@ static int create_core(void) {
     linphone_factory_set_data_dir(g.factory, g.data_dir);
     linphone_factory_set_config_dir(g.factory, g.data_dir);
     linphone_factory_set_download_dir(g.factory, g.data_dir);
+    /* The default cache directory is the data directory with "cache/"
+       appended without a separator, i.e. a sibling named <data>cache. */
+    char cache_dir[PATH_MAX_LEN + 8];
+    snprintf(cache_dir, sizeof(cache_dir), "%s/cache", g.data_dir);
+    mkdir(cache_dir, 0755);
+    linphone_factory_set_cache_dir(g.factory, cache_dir);
 
     char config_path[PATH_MAX_LEN + 16];
     snprintf(config_path, sizeof(config_path), "%s/linphonerc", g.data_dir);
