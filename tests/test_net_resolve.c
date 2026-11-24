@@ -16,16 +16,17 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
-static void check_conversion(void)
-{
+static void check_conversion(void) {
     struct in_addr a4;
     struct in6_addr a6;
     char text[INET6_ADDRSTRLEN];
 
     AOS_CHECK(inet_pton(AF_INET, "192.168.122.1", &a4) == 1 &&
-              a4.s_addr == htonl(0xc0a87a01), "inet_pton() of an IPv4 address");
+                  a4.s_addr == htonl(0xc0a87a01),
+              "inet_pton() of an IPv4 address");
     AOS_CHECK(inet_pton(AF_INET6, "fe80::1:2", &a6) == 1 && a6.s6_addr[0] == 0xfe &&
-              a6.s6_addr[15] == 2, "inet_pton() of an IPv6 address");
+                  a6.s6_addr[15] == 2,
+              "inet_pton() of an IPv6 address");
     AOS_CHECK(inet_pton(AF_INET, "300.1.1.1", &a4) == 0, "inet_pton() rejects a bad address");
     errno = 0;
     AOS_CHECK(inet_pton(12345, "1.2.3.4", &a4) == -1 && errno == EAFNOSUPPORT,
@@ -50,11 +51,11 @@ static void check_conversion(void)
 
     /* An IPv6 address in s6_addr32 words (bctoolbox reads it this way). */
     AOS_CHECK(inet_pton(AF_INET6, "::ffff:1.2.3.4", &a6) == 1 && a6.s6_addr32[2] == htonl(0xffff) &&
-              a6.s6_addr32[3] == htonl(0x01020304), "s6_addr32 view of an IPv4-mapped address");
+                  a6.s6_addr32[3] == htonl(0x01020304),
+              "s6_addr32 view of an IPv4-mapped address");
 }
 
-static int count_entries(const struct addrinfo *ai)
-{
+static int count_entries(const struct addrinfo *ai) {
     int n = 0;
     for (; ai != NULL; ai = ai->ai_next) {
         ++n;
@@ -62,8 +63,7 @@ static int count_entries(const struct addrinfo *ai)
     return n;
 }
 
-static void check_getaddrinfo(void)
-{
+static void check_getaddrinfo(void) {
     struct addrinfo hints, *res = NULL;
     char host[NI_MAXHOST], serv[NI_MAXSERV];
 
@@ -73,12 +73,12 @@ static void check_getaddrinfo(void)
     hints.ai_flags = AI_NUMERICHOST | AI_NUMERICSERV;
     int err = getaddrinfo("127.0.0.1", "5060", &hints, &res);
     AOS_CHECK(err == 0 && res != NULL && res->ai_family == AF_INET &&
-              ((struct sockaddr_in *)res->ai_addr)->sin_port == htons(5060),
+                  ((struct sockaddr_in *)res->ai_addr)->sin_port == htons(5060),
               "getaddrinfo() of a numeric IPv4 address and port");
     if (err == 0) {
         AOS_CHECK(getnameinfo(res->ai_addr, (socklen_t)res->ai_addrlen, host, sizeof(host), serv,
                               sizeof(serv), NI_NUMERICHOST | NI_NUMERICSERV) == 0 &&
-                  strcmp(host, "127.0.0.1") == 0 && strcmp(serv, "5060") == 0,
+                      strcmp(host, "127.0.0.1") == 0 && strcmp(serv, "5060") == 0,
                   "getnameinfo() back to numeric strings");
         freeaddrinfo(res);
     }
@@ -90,13 +90,14 @@ static void check_getaddrinfo(void)
     err = getaddrinfo("192.168.1.10", "5060", &hints, &res);
     const struct sockaddr_in6 *in6 = res != NULL ? (const struct sockaddr_in6 *)res->ai_addr : NULL;
     AOS_CHECK(err == 0 && count_entries(res) == 1 && res->ai_family == AF_INET6 &&
-              res->ai_addrlen == sizeof(struct sockaddr_in6) && in6->sin6_port == htons(5060) &&
-              in6->sin6_addr.s6_addr32[2] == htonl(0xffff) &&
-              in6->sin6_addr.s6_addr32[3] == htonl(0xc0a8010a),
+                  res->ai_addrlen == sizeof(struct sockaddr_in6) && in6->sin6_port == htons(5060) &&
+                  in6->sin6_addr.s6_addr32[2] == htonl(0xffff) &&
+                  in6->sin6_addr.s6_addr32[3] == htonl(0xc0a8010a),
               "AI_V4MAPPED returns an IPv4 address as ::ffff:a.b.c.d");
     if (err == 0) {
         AOS_CHECK(getnameinfo(res->ai_addr, (socklen_t)res->ai_addrlen, host, sizeof(host), NULL, 0,
-                              NI_NUMERICHOST) == 0 && strcmp(host, "::ffff:192.168.1.10") == 0,
+                              NI_NUMERICHOST) == 0 &&
+                      strcmp(host, "::ffff:192.168.1.10") == 0,
                   "getnameinfo() of the mapped address");
         freeaddrinfo(res);
     }
@@ -104,7 +105,7 @@ static void check_getaddrinfo(void)
     res = NULL;
     err = getaddrinfo("::1", "5060", &hints, &res);
     AOS_CHECK(err == 0 && count_entries(res) == 1 && res->ai_family == AF_INET6 &&
-              ((const struct sockaddr_in6 *)res->ai_addr)->sin6_addr.s6_addr[15] == 1,
+                  ((const struct sockaddr_in6 *)res->ai_addr)->sin6_addr.s6_addr[15] == 1,
               "AI_V4MAPPED | AI_ALL keeps an IPv6 address as it is");
     if (err == 0) {
         freeaddrinfo(res);
@@ -114,7 +115,7 @@ static void check_getaddrinfo(void)
     res = NULL;
     err = getaddrinfo("192.168.1.10", "5060", &hints, &res);
     AOS_CHECK(err == 0 && count_entries(res) == 1 && res->ai_family == AF_INET6 &&
-              ((const struct sockaddr_in6 *)res->ai_addr)->sin6_addr.s6_addr32[3] == htonl(0xc0a8010a),
+                  ((const struct sockaddr_in6 *)res->ai_addr)->sin6_addr.s6_addr32[3] == htonl(0xc0a8010a),
               "AI_V4MAPPED alone maps an address that has no IPv6 form");
     if (err == 0) {
         freeaddrinfo(res);
@@ -144,8 +145,7 @@ static void check_getaddrinfo(void)
 }
 
 /* Counts the entries of a lookup of name; -1 when it fails. */
-static int lookup_count(const char *name, int family, long flags, int *mapped)
-{
+static int lookup_count(const char *name, int family, long flags, int *mapped) {
     struct addrinfo hints, *res = NULL;
     memset(&hints, 0, sizeof(hints));
     hints.ai_family = family;
@@ -167,8 +167,7 @@ static int lookup_count(const char *name, int family, long flags, int *mapped)
 }
 
 /* The AI_V4MAPPED rules on a name, whatever AROSTCP's host table holds. */
-static void check_v4mapped_rules(void)
-{
+static void check_v4mapped_rules(void) {
     int mapped = 0;
     int n6 = lookup_count("localhost", AF_INET6, 0, &mapped);
     int n4 = lookup_count("localhost", AF_INET, 0, &mapped);
@@ -204,8 +203,7 @@ struct resolve_job {
     int err;
 };
 
-static void *resolve_in_thread(void *arg)
-{
+static void *resolve_in_thread(void *arg) {
     struct resolve_job *job = arg;
     struct addrinfo hints;
     memset(&hints, 0, sizeof(hints));
@@ -215,21 +213,19 @@ static void *resolve_in_thread(void *arg)
     return NULL;
 }
 
-static void check_thread_resolve(void)
-{
+static void check_thread_resolve(void) {
     struct resolve_job job = {NULL, -1};
     pthread_t th;
     pthread_create(&th, NULL, resolve_in_thread, &job);
     pthread_join(th, NULL);
     AOS_CHECK(job.err == 0 && job.res != NULL &&
-              ((struct sockaddr_in *)job.res->ai_addr)->sin_addr.s_addr == htonl(0x0a141e28),
+                  ((struct sockaddr_in *)job.res->ai_addr)->sin_addr.s_addr == htonl(0x0a141e28),
               "getaddrinfo() in a thread that did not open the library");
     /* Freed by another thread than the one that resolved. */
     freeaddrinfo(job.res);
 }
 
-static void check_host_and_dns(void)
-{
+static void check_host_and_dns(void) {
     char name[256];
     AOS_CHECK(gethostname(name, sizeof(name)) == 0 && name[0] != '\0', "gethostname()");
     printf("info: host name \"%s\"\n", name);
@@ -247,8 +243,7 @@ static void check_host_and_dns(void)
               "aos_net_dns_servers() rejects a negative capacity");
 }
 
-int main(void)
-{
+int main(void) {
     AOS_CHECK(aos_net_status() == 0, "bsdsocket.library opened before main()");
     if (aos_net_status() != 0) {
         return aos_test_result();

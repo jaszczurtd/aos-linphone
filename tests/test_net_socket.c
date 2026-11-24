@@ -18,8 +18,7 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
-static struct sockaddr_in loopback_any(void)
-{
+static struct sockaddr_in loopback_any(void) {
     struct sockaddr_in a;
     memset(&a, 0, sizeof(a));
     a.sin_len = sizeof(a);
@@ -29,8 +28,7 @@ static struct sockaddr_in loopback_any(void)
 }
 
 /* A UDP socket bound to an ephemeral loopback port. */
-static int udp_socket(struct sockaddr_in *addr)
-{
+static int udp_socket(struct sockaddr_in *addr) {
     int s = socket(AF_INET, SOCK_DGRAM, 0);
     socklen_t len = sizeof(*addr);
     *addr = loopback_any();
@@ -49,16 +47,14 @@ static pthread_mutex_t step_lock;
 static pthread_cond_t step_cond;
 static int step;
 
-static void set_step(int value)
-{
+static void set_step(int value) {
     pthread_mutex_lock(&step_lock);
     step = value;
     pthread_cond_broadcast(&step_cond);
     pthread_mutex_unlock(&step_lock);
 }
 
-static void wait_step(int value)
-{
+static void wait_step(int value) {
     pthread_mutex_lock(&step_lock);
     while (step < value) {
         pthread_cond_wait(&step_cond, &step_lock);
@@ -73,8 +69,7 @@ struct worker_result {
     int closed_errno;
 };
 
-static void *udp_worker(void *arg)
-{
+static void *udp_worker(void *arg) {
     struct worker_result *r = arg;
     char buf[16];
 
@@ -95,8 +90,7 @@ static void *udp_worker(void *arg)
     return NULL;
 }
 
-static void check_shared_udp(void)
-{
+static void check_shared_udp(void) {
     struct worker_result r = {0, 0, 0, 0};
     char buf[16];
     int peer = udp_socket(&peer_addr);
@@ -133,8 +127,7 @@ static void check_shared_udp(void)
 
 /* ---- flags and options of the linphone stack ----------------------------- */
 
-static void check_socket_flags(void)
-{
+static void check_socket_flags(void) {
     char buf[4];
 
     /* belle-sip's DNS resolver (dns.c) */
@@ -166,7 +159,7 @@ static void check_socket_flags(void)
     AOS_CHECK(setsockopt(u, IPPROTO_IP, IP_TOS, &tos, sizeof(tos)) == 0,
               "setsockopt(IP_TOS)");
     AOS_CHECK(setsockopt(u, SOL_SOCKET, SO_RCVBUF, &size, sizeof(size)) == 0 &&
-              setsockopt(u, SOL_SOCKET, SO_SNDBUF, &size, sizeof(size)) == 0,
+                  setsockopt(u, SOL_SOCKET, SO_SNDBUF, &size, sizeof(size)) == 0,
               "setsockopt(SO_RCVBUF, SO_SNDBUF)");
     AOS_CHECK(bind(u, (struct sockaddr *)&a, sizeof(a)) == 0, "bind() after the options");
     close(u);
@@ -174,8 +167,7 @@ static void check_socket_flags(void)
 
 /* ---- ancillary data (ortp receive path) ---------------------------------- */
 
-static void check_pktinfo(void)
-{
+static void check_pktinfo(void) {
     struct sockaddr_in ra, sa;
     int r = udp_socket(&ra);
     int s = udp_socket(&sa);
@@ -232,13 +224,12 @@ static void check_pktinfo(void)
 
 /* ---- non-blocking TCP connect (belle-sip stream channel) ----------------- */
 
-static void check_tcp_connect(void)
-{
+static void check_tcp_connect(void) {
     struct sockaddr_in a = loopback_any();
     socklen_t len = sizeof(a);
     int l = socket(AF_INET, SOCK_STREAM, 0);
     AOS_CHECK(l >= 0 && bind(l, (struct sockaddr *)&a, sizeof(a)) == 0 && listen(l, 64) == 0 &&
-              getsockname(l, (struct sockaddr *)&a, &len) == 0,
+                  getsockname(l, (struct sockaddr *)&a, &len) == 0,
               "TCP listener on loopback");
 
     int c = socket(AF_INET, SOCK_STREAM, 0);
@@ -266,7 +257,7 @@ static void check_tcp_connect(void)
     struct sockaddr_in peer;
     socklen_t plen = sizeof(peer);
     AOS_CHECK(getpeername(a2, (struct sockaddr *)&peer, &plen) == 0 &&
-              peer.sin_addr.s_addr == htonl(INADDR_LOOPBACK),
+                  peer.sin_addr.s_addr == htonl(INADDR_LOOPBACK),
               "getpeername() on the accepted socket");
     close(a2);
     close(c);
@@ -275,8 +266,7 @@ static void check_tcp_connect(void)
 
 /* ---- IPv4 through an IPv6 socket (use_ipv6=1 in linphone) ---------------- */
 
-static void report_dual_stack(void)
-{
+static void report_dual_stack(void) {
     int s6 = socket(AF_INET6, SOCK_DGRAM, 0);
     int zero = 0;
     struct sockaddr_in6 a6;
@@ -318,14 +308,14 @@ static void report_dual_stack(void)
         struct pollfd q = {s4, POLLIN, 0};
         int back = n == 2 && poll(&q, 1, 1000) == 1 && recv(s4, buf, sizeof(buf), 0) == 2;
         printf("info: reply to the IPv4-mapped address: sendto() %d, errno %d; reaches the IPv4 "
-               "socket: %s\n", (int)n, send_errno, back ? "yes" : "no");
+               "socket: %s\n",
+               (int)n, send_errno, back ? "yes" : "no");
     }
     close(s4);
     close(s6);
 }
 
-int main(void)
-{
+int main(void) {
     pthread_mutex_init(&step_lock, NULL);
     pthread_cond_init(&step_cond, NULL);
 

@@ -16,21 +16,21 @@ extern "C" {
 typedef unsigned int nfds_t;
 
 struct pollfd {
-    int fd;         /* descriptor; negative entries are skipped */
-    short events;   /* requested events */
-    short revents;  /* returned events */
+    int fd;        /* descriptor; negative entries are skipped */
+    short events;  /* requested events */
+    short revents; /* returned events */
 };
 
-#define POLLIN      0x0001
-#define POLLPRI     0x0002
-#define POLLOUT     0x0004
-#define POLLERR     0x0008
-#define POLLHUP     0x0010
-#define POLLNVAL    0x0020
-#define POLLRDNORM  0x0040
-#define POLLRDBAND  0x0080
-#define POLLWRNORM  0x0100
-#define POLLWRBAND  0x0200
+#define POLLIN     0x0001
+#define POLLPRI    0x0002
+#define POLLOUT    0x0004
+#define POLLERR    0x0008
+#define POLLHUP    0x0010
+#define POLLNVAL   0x0020
+#define POLLRDNORM 0x0040
+#define POLLRDBAND 0x0080
+#define POLLWRNORM 0x0100
+#define POLLWRBAND 0x0200
 
 /**
  * @brief Waits until one of the sockets in @p fds is ready.

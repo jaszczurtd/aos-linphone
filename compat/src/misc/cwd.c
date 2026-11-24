@@ -4,8 +4,7 @@
 #include <stdlib.h>
 #include <unistd.h>
 
-char *get_current_dir_name(void)
-{
+char *get_current_dir_name(void) {
     for (size_t size = 256; size <= 65536; size *= 2) {
         char *buf = malloc(size);
         if (buf == NULL) {

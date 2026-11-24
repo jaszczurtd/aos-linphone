@@ -1,0 +1,69 @@
+#!/bin/sh
+# Checks that the commit message follows Conventional Commits:
+#
+#   type(scope)!: subject
+#
+# type is one of feat, fix, docs, style, refactor, perf, test, build, ci,
+# chore and revert. The lower-case scope and the "!" of a breaking change are
+# optional, and the subject line takes at most 100 bytes. Messages git writes
+# itself pass unchecked: merges, reverts and fixup!, squash! and amend!
+# commits.
+#
+# Before the check the hook replaces typographic UTF-8 punctuation with ASCII,
+# as the pre-commit hook does for files, and removes Co-authored-by lines.
+#
+# Enable with: git config core.hooksPath .githooks
+set -eu
+
+msg_file=$1
+
+perl -i -pe '
+    s/\xC2\xA0/ /g;
+    s/\xE2\x80[\x98\x99]/\x27/g;
+    s/\xE2\x80[\x9C\x9D]/\x22/g;
+    s/\xE2\x80[\x93\x94]/-/g;
+    s/\xE2\x86\x92/->/g;
+    s/\xE2\x80\xA6/.../g;
+    $_ = "" if /^[ \t]*co[ \t_-]*authored[ \t_-]*by[ \t]*:/i;
+' "$msg_file"
+
+# Git drops blank and comment lines from the message after this hook, so the
+# subject is the first line that is neither.
+comment=$(git config --get core.commentChar || true)
+case "$comment" in
+    "" | auto) comment="#" ;;
+esac
+subject=$(COMMENT=$comment perl -ne '
+    next if /^\s*$/ || index($_, $ENV{COMMENT}) == 0;
+    s/\s+\z//;
+    print;
+    exit;
+' "$msg_file")
+
+# An empty message: git refuses it with its own error.
+[ -n "$subject" ] || exit 0
+
+case "$subject" in
+    "Merge "* | "Revert \""* | "Reapply \""* | "fixup! "* | "squash! "* | "amend! "*)
+        exit 0
+        ;;
+esac
+
+pattern='^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\([a-z0-9._/-]+\))?!?: [^ ].+$'
+if ! printf '%s\n' "$subject" | grep -Eq "$pattern"; then
+    {
+        echo "ERROR: invalid commit message: $subject"
+        echo "Expected: type(scope): subject"
+        echo "Types: feat, fix, docs, style, refactor, perf, test, build, ci, chore, revert"
+        echo "Examples:"
+        echo "  feat(compat): add poll() over WaitSelect"
+        echo "  fix: keep errno per thread"
+    } >&2
+    exit 1
+fi
+
+length=$(printf '%s' "$subject" | wc -c | tr -d ' ')
+if [ "$length" -gt 100 ]; then
+    echo "ERROR: the subject line takes $length bytes; keep it at 100 or less." >&2
+    exit 1
+fi

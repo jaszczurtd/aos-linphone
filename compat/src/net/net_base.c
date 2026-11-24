@@ -24,11 +24,13 @@
 struct Library *SocketBase = NULL;
 int aos_net_open_error = ENETDOWN;
 
+/* AROS_USERFUNC_INIT and AROS_USERFUNC_EXIT expand to braces, which
+   clang-format cannot see. */
+/* clang-format off */
 AROS_UFH3(static IPTR, aos_net_error_hook,
     AROS_UFHA(struct Hook *, hook, A0),
     AROS_UFHA(APTR, object, A2),
-    AROS_UFHA(struct ErrorHookMsg *, msg, A1))
-{
+    AROS_UFHA(struct ErrorHookMsg *, msg, A1)) {
     AROS_USERFUNC_INIT
     (void)hook;
     (void)object;
@@ -42,9 +44,9 @@ AROS_UFH3(static IPTR, aos_net_error_hook,
 static struct Hook aos_net_hook = {
     {NULL, NULL}, (HOOKFUNC)aos_net_error_hook, NULL, NULL
 };
+/* clang-format on */
 
-static int aos_net_open(void)
-{
+static int aos_net_open(void) {
     struct Library *base =
         OpenLibrary((CONST_STRPTR) "bsdsocket.library", AOS_NET_BSDSOCKET_VERSION);
     if (base == NULL) {
@@ -72,8 +74,7 @@ static int aos_net_open(void)
     return 1;
 }
 
-static void aos_net_close(void)
-{
+static void aos_net_close(void) {
     if (SocketBase != NULL) {
         CloseLibrary(SocketBase);
         SocketBase = NULL;
@@ -84,13 +85,11 @@ static void aos_net_close(void)
 ADD2INIT(aos_net_open, 10);
 ADD2EXIT(aos_net_close, 10);
 
-int aos_net_status(void)
-{
+int aos_net_status(void) {
     return aos_net_open_error;
 }
 
-ULONG SocketBaseTagList(struct TagItem *tags)
-{
+ULONG SocketBaseTagList(struct TagItem *tags) {
     if (SocketBase != NULL) {
         return __SocketBaseTagList_WB(SocketBase, tags);
     }

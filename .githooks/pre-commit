@@ -1,0 +1,128 @@
+#!/bin/sh
+# Normalizes the text files a commit records and stages the result:
+#   - typographic UTF-8 punctuation becomes ASCII: no-break space, curly
+#     quotes, en and em dashes, right arrow, ellipsis
+#   - CRLF line ends become LF and trailing spaces and tabs go
+#   - a non-empty file ends with a newline
+#   - C and C++ sources go through clang-format, when the repository has a
+#     .clang-format and clang-format is installed
+# Patch files stay as they are, byte for byte: their context lines must match
+# the upstream sources. Binary files, symlinks and submodules are skipped.
+#
+# The hook normalizes the staged version, not the working copy, so a partly
+# staged file commits only what was staged. A working copy equal to the
+# staged version gets the normalized content too; one with unstaged changes
+# keeps them, and the commit that stages them normalizes them. A commit left
+# with nothing to record after normalization stops with an error.
+#
+# Enable with: git config core.hooksPath .githooks
+set -eu
+
+repo_root=$(git rev-parse --show-toplevel)
+cd "$repo_root"
+
+# git commit <paths> runs the hook on a temporary index, and the real index
+# keeps the files as they were before normalization. Git passes a relative
+# GIT_INDEX_FILE from the top of the work tree.
+real_index=$(env -u GIT_INDEX_FILE git rev-parse --path-format=absolute --git-path index)
+case "${GIT_INDEX_FILE:-}" in
+    "") index=$real_index ;;
+    /*) index=$GIT_INDEX_FILE ;;
+    *) index=$repo_root/$GIT_INDEX_FILE ;;
+esac
+changed=no
+
+format_c=no
+if [ -f .clang-format ] && command -v clang-format >/dev/null 2>&1; then
+    format_c=yes
+fi
+
+tmp=$(mktemp "$(git rev-parse --git-path pre-commit-XXXXXX)")
+trap 'rm -f "$tmp" "$tmp.new" "$tmp.fmt"' EXIT
+trap 'exit 1' HUP INT TERM
+
+# One line per staged file: ":<old mode> <new mode> <old sha> <new sha> <status>"
+# and a tab before the path.
+staged=$(git -c core.quotePath=false diff --cached --raw --no-abbrev \
+    --no-renames --diff-filter=ACMT)
+
+tab=$(printf '\t')
+while IFS="$tab" read -r meta file; do
+    [ -n "$file" ] || continue
+    # shellcheck disable=SC2086 # split the five fields of $meta
+    set -- $meta
+    mode=$2
+    sha=$4
+
+    case "$mode" in
+        100644 | 100755) ;;
+        *) continue ;;
+    esac
+    case "$file" in
+        *.patch | *.diff) continue ;;
+        # Git quotes a path with a quote, backslash or control character.
+        \"*)
+            echo "[pre-commit] skipped $file: unusual characters in the name"
+            continue
+            ;;
+    esac
+
+    git cat-file blob "$sha" > "$tmp"
+    # Binary and empty files.
+    grep -Iq . "$tmp" || continue
+
+    perl -0777 -pe '
+        s/\xC2\xA0/ /g;
+        s/\xE2\x80[\x98\x99]/\x27/g;
+        s/\xE2\x80[\x9C\x9D]/\x22/g;
+        s/\xE2\x80[\x93\x94]/-/g;
+        s/\xE2\x86\x92/->/g;
+        s/\xE2\x80\xA6/.../g;
+        s/\r$//mg;
+        s/[ \t]+$//mg;
+        $_ .= "\n" if length && !/\n\z/;
+    ' "$tmp" > "$tmp.new"
+
+    if [ "$format_c" = yes ]; then
+        case "$file" in
+            *.c | *.cc | *.cpp | *.cxx | *.h | *.hh | *.hpp | *.hxx)
+                clang-format --assume-filename="$file" < "$tmp.new" > "$tmp.fmt"
+                mv -f "$tmp.fmt" "$tmp.new"
+                ;;
+        esac
+    fi
+
+    if cmp -s "$tmp" "$tmp.new"; then
+        continue
+    fi
+    changed=yes
+
+    if [ -f "$file" ] && [ ! -L "$file" ] &&
+            [ "$(git hash-object -- "$file")" = "$sha" ]; then
+        cat "$tmp.new" > "$file"
+        git update-index -- "$file"
+        echo "[pre-commit] normalized $file"
+    else
+        new_sha=$(git hash-object -w --no-filters "$tmp.new")
+        git update-index --cacheinfo "$mode,$new_sha,$file"
+        echo "[pre-commit] normalized the staged $file; the working copy keeps its unstaged changes"
+    fi
+done <<EOF
+$staged
+EOF
+
+[ "$changed" = yes ] || exit 0
+
+case "$index" in
+    "$real_index" | "$real_index.lock") ;;
+    *) echo "[pre-commit] commit with paths: the index still holds the old versions of the files above; git add them after the commit" ;;
+esac
+
+# Staged changes that were nothing but what the hook removes leave the index
+# equal to HEAD, and git would record an empty commit. A merge may do that.
+if git rev-parse -q --verify HEAD >/dev/null &&
+        [ ! -f "$(git rev-parse --git-path MERGE_HEAD)" ] &&
+        git diff --cached --quiet HEAD --; then
+    echo "[pre-commit] nothing left to commit after normalization" >&2
+    exit 1
+fi

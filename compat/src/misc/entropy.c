@@ -6,8 +6,7 @@
 /* Same prototype as in mbedtls/entropy_poll.h. */
 int mbedtls_hardware_poll(void *data, unsigned char *output, size_t len, size_t *olen);
 
-int mbedtls_hardware_poll(void *data, unsigned char *output, size_t len, size_t *olen)
-{
+int mbedtls_hardware_poll(void *data, unsigned char *output, size_t len, size_t *olen) {
     (void)data;
     *olen = 0;
     /* getentropy() hands out at most 256 bytes per call. */

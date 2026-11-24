@@ -1,0 +1,21 @@
+# Code style of aos-linphone; the pre-commit hook in .githooks applies it.
+# Opening braces stay on the line of the function, struct or statement.
+# ColumnLimit 0 keeps the line breaks the author chose.
+BasedOnStyle: LLVM
+IndentWidth: 4
+ContinuationIndentWidth: 4
+ColumnLimit: 0
+BreakBeforeBraces: Attach
+AccessModifierOffset: -4
+IndentCaseLabels: false
+AllowShortFunctionsOnASingleLine: Inline
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLoopsOnASingleLine: false
+AllowShortBlocksOnASingleLine: Never
+AllowShortCaseLabelsOnASingleLine: true
+AlignAfterOpenBracket: Align
+AlignConsecutiveMacros: Consecutive
+AlignEscapedNewlines: Left
+AlignTrailingComments: true
+PointerAlignment: Right
+SortIncludes: Never

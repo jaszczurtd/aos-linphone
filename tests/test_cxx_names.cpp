@@ -20,7 +20,8 @@ namespace {
 
 class Channel {
 public:
-    explicit Channel(int fd) : mFd(fd) {}
+    explicit Channel(int fd)
+        : mFd(fd) {}
     ~Channel() { close(); }
 
     int bind(const sockaddr_in &addr) { return ::bind(mFd, reinterpret_cast<const sockaddr *>(&addr), sizeof(addr)); }

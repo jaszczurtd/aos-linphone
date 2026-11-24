@@ -17,39 +17,33 @@ const struct in6_addr in6addr_loopback = IN6ADDR_LOOPBACK_INIT;
 /* LONG is 32-bit on AROS, unlike the C type long. */
 #define AOS_NET_LONG_MAX 0x7fffffffL
 
-static LONG aos_net_size(socklen_t size)
-{
+static LONG aos_net_size(socklen_t size) {
     return size > (socklen_t)AOS_NET_LONG_MAX ? (LONG)AOS_NET_LONG_MAX : (LONG)size;
 }
 
-in_addr_t inet_addr(const char *cp)
-{
+in_addr_t inet_addr(const char *cp) {
     AOS_NET_REQUIRE_BASE(INADDR_NONE);
     return __inet_addr_WB(SocketBase, cp);
 }
 
-int inet_aton(const char *cp, struct in_addr *addr)
-{
+int inet_aton(const char *cp, struct in_addr *addr) {
     AOS_NET_REQUIRE_BASE(0);
     return __inet_aton_WB(SocketBase, (CONST_STRPTR)cp, addr) ? 1 : 0;
 }
 
 /* Returns a buffer inside the library, shared by all threads like the
    static buffer of a POSIX inet_ntoa(). */
-char *inet_ntoa(struct in_addr in)
-{
+char *inet_ntoa(struct in_addr in) {
     AOS_NET_REQUIRE_BASE(NULL);
     return __Inet_NtoA_WB(SocketBase, in.s_addr);
 }
 
-const char *inet_ntop(int af, const void *src, char *dst, socklen_t size)
-{
+const char *inet_ntop(int af, const void *src, char *dst, socklen_t size) {
     AOS_NET_REQUIRE_BASE(NULL);
     return (const char *)__inet_ntop_WB(SocketBase, af, (void *)src, dst, aos_net_size(size));
 }
 
-int inet_pton(int af, const char *src, void *dst)
-{
+int inet_pton(int af, const char *src, void *dst) {
     AOS_NET_REQUIRE_BASE(-1);
     return __inet_pton_WB(SocketBase, af, src, dst);
 }
@@ -63,8 +57,7 @@ struct aos_ai_node {
 
 /* Copies one library entry into a node of our own. With map_v4, an IPv4
    entry becomes an IPv4-mapped IPv6 one (::ffff:a.b.c.d). */
-static struct addrinfo *aos_ai_copy(const struct addrinfo *src, int map_v4)
-{
+static struct addrinfo *aos_ai_copy(const struct addrinfo *src, int map_v4) {
     size_t canon = src->ai_canonname != NULL ? strlen(src->ai_canonname) + 1 : 0;
     struct aos_ai_node *node;
 
@@ -101,8 +94,7 @@ static struct addrinfo *aos_ai_copy(const struct addrinfo *src, int map_v4)
 }
 
 /* Appends copies of a library list at *tail; returns 0 or EAI_MEMORY. */
-static int aos_ai_append(struct addrinfo ***tail, const struct addrinfo *list, int map_v4)
-{
+static int aos_ai_append(struct addrinfo ***tail, const struct addrinfo *list, int map_v4) {
     for (; list != NULL; list = list->ai_next) {
         struct addrinfo *copy = aos_ai_copy(list, map_v4);
         if (copy == NULL) {
@@ -127,8 +119,7 @@ static int aos_ai_append(struct addrinfo ***tail, const struct addrinfo *list, i
  * EAI_SYSTEM...) is returned as it is, without a second query.
  */
 int getaddrinfo(const char *node, const char *service,
-                const struct addrinfo *hints, struct addrinfo **res)
-{
+                const struct addrinfo *hints, struct addrinfo **res) {
     if (res == NULL) {
         return EAI_FAIL;
     }
@@ -189,8 +180,7 @@ int getaddrinfo(const char *node, const char *service,
     return 0;
 }
 
-void freeaddrinfo(struct addrinfo *res)
-{
+void freeaddrinfo(struct addrinfo *res) {
     while (res != NULL) {
         struct addrinfo *next = res->ai_next;
         free(res);
@@ -200,8 +190,7 @@ void freeaddrinfo(struct addrinfo *res)
 
 int getnameinfo(const struct sockaddr *sa, socklen_t salen,
                 char *host, socklen_t hostlen,
-                char *serv, socklen_t servlen, int flags)
-{
+                char *serv, socklen_t servlen, int flags) {
     if (SocketBase == NULL) {
         errno = aos_net_open_error;
         return EAI_SYSTEM;
@@ -211,8 +200,7 @@ int getnameinfo(const struct sockaddr *sa, socklen_t salen,
                             serv, aos_net_size(servlen), flags);
 }
 
-const char *gai_strerror(int errcode)
-{
+const char *gai_strerror(int errcode) {
     if (SocketBase == NULL) {
         return "Network unavailable (bsdsocket.library not open)";
     }

@@ -11,8 +11,7 @@
 #include <libraries/bsdsocket.h>
 #include <string.h>
 
-int aos_net_dns_servers(char (*out)[AOS_NET_ADDRSTRLEN], int max)
-{
+int aos_net_dns_servers(char (*out)[AOS_NET_ADDRSTRLEN], int max) {
     AOS_NET_REQUIRE_BASE(-1);
     if (max < 0 || (max > 0 && out == NULL)) {
         errno = EINVAL;

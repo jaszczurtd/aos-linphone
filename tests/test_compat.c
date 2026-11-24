@@ -16,8 +16,7 @@
 
 /* Converts the whole of in; returns the output length or -1. */
 static long convert(const char *to, const char *from, const char *in, size_t in_len,
-                    char *out, size_t out_size)
-{
+                    char *out, size_t out_size) {
     iconv_t cd = iconv_open(to, from);
     if (cd == (iconv_t)-1) {
         return -1;
@@ -29,8 +28,7 @@ static long convert(const char *to, const char *from, const char *in, size_t in_
     return rc == (size_t)-1 ? -1 : (long)(out_size - ol);
 }
 
-static void check_iconv(void)
-{
+static void check_iconv(void) {
     char out[64];
     /* "zażółć" in UTF-8 and in ISO-8859-2 */
     static const char utf8[] = "za\xc5\xbc\xc3\xb3\xc5\x82\xc4\x87";
@@ -91,13 +89,16 @@ static void check_iconv(void)
     errno = 0;
     AOS_CHECK(convert("UTF-8", "UTF-8", "a\xed\xa0", 3, out, sizeof(out)) == -1 && errno == EILSEQ,
               "a truncated surrogate fails with EILSEQ");
-    AOS_CHECK(convert("ISO-8859-1//IGNORE", "UTF-8", "a\xff" "b", 3, out, sizeof(out)) == 2 &&
-              memcmp(out, "ab", 2) == 0, "//IGNORE skips an invalid input byte");
+    AOS_CHECK(convert("ISO-8859-1//IGNORE", "UTF-8", "a\377b", 3, out, sizeof(out)) == 2 &&
+                  memcmp(out, "ab", 2) == 0,
+              "//IGNORE skips an invalid input byte");
     errno = 0;
     AOS_CHECK(convert("ISO-8859-1", "UTF-8", "\xe2\x82\xac", 3, out, sizeof(out)) == -1 &&
-              errno == EILSEQ, "a character the target lacks fails with EILSEQ");
+                  errno == EILSEQ,
+              "a character the target lacks fails with EILSEQ");
     AOS_CHECK(convert("ISO-8859-1//TRANSLIT", "UTF-8", "\xe2\x82\xac!", 4, out, sizeof(out)) == 2 &&
-              memcmp(out, "?!", 2) == 0, "//TRANSLIT replaces it with '?'");
+                  memcmp(out, "?!", 2) == 0,
+              "//TRANSLIT replaces it with '?'");
 
     /* bctoolbox convert_from_to("locale", "UTF-8") */
     setlocale(LC_CTYPE, "");
@@ -112,8 +113,7 @@ static void check_iconv(void)
     AOS_CHECK(n == 12 && strcmp(out, "plain ascii") == 0, "ASCII text survives UTF-8 to the system code page");
 }
 
-static void check_stubs(void)
-{
+static void check_stubs(void) {
     AOS_CHECK(dlerror() == NULL, "dlerror() is NULL before any failure");
     AOS_CHECK(dlopen(NULL, RTLD_LAZY) == NULL, "dlopen() fails");
     const char *msg = dlerror();
@@ -130,8 +130,7 @@ static void check_stubs(void)
     AOS_CHECK(getpriority(PRIO_PROCESS, 0) == 0, "getpriority() reports 0");
 }
 
-int main(void)
-{
+int main(void) {
     check_iconv();
     check_stubs();
     return aos_test_result();

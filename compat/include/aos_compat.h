@@ -44,7 +44,7 @@
 #if !defined(_POSIX_SOURCE) && !defined(_POSIX_C_SOURCE) && !defined(_XOPEN_SOURCE) && \
     !defined(_GNU_SOURCE) && !defined(_ANSI_SOURCE) && !defined(_C99_SOURCE)
 #define _POSIX_C_SOURCE 200809L
-#define _XOPEN_SOURCE 700
+#define _XOPEN_SOURCE   700
 #ifndef __BSD_VISIBLE
 #define __BSD_VISIBLE 1
 #endif
@@ -76,7 +76,7 @@
 #undef sendto
 
 /* No bsdsocket.library vector macros, no AROS prototypes. */
-#define BSDSOCKET_NOLIBDEFINES 1
+#define BSDSOCKET_NOLIBDEFINES  1
 #define CLIB_BSDSOCKET_PROTOS_H 1
 
 #include <exec/types.h>

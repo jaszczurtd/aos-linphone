@@ -20,8 +20,7 @@
    select(0, NULL, NULL, NULL, &tv) keeps working as a sleep (ortp's timer
    uses it this way). Returns 0, or -1 with ENETDOWN when there is no
    timeout to sleep for. */
-static int aos_wait_without_base(const struct timeval *tv)
-{
+static int aos_wait_without_base(const struct timeval *tv) {
     if (tv == NULL) {
         errno = aos_net_open_error;
         return -1;
@@ -33,8 +32,7 @@ static int aos_wait_without_base(const struct timeval *tv)
     return 0;
 }
 
-static int aos_select_has_fds(int nfds, const fd_set *r, const fd_set *w, const fd_set *e)
-{
+static int aos_select_has_fds(int nfds, const fd_set *r, const fd_set *w, const fd_set *e) {
     for (int fd = 0; fd < nfds; ++fd) {
         if ((r != NULL && FD_ISSET(fd, r)) || (w != NULL && FD_ISSET(fd, w)) ||
             (e != NULL && FD_ISSET(fd, e))) {
@@ -45,8 +43,7 @@ static int aos_select_has_fds(int nfds, const fd_set *r, const fd_set *w, const 
 }
 
 int select(int nfds, fd_set *readfds, fd_set *writefds, fd_set *exceptfds,
-           struct timeval *timeout)
-{
+           struct timeval *timeout) {
     if (SocketBase == NULL) {
         if (aos_select_has_fds(nfds, readfds, writefds, exceptfds)) {
             errno = aos_net_open_error;
@@ -59,32 +56,28 @@ int select(int nfds, fd_set *readfds, fd_set *writefds, fd_set *exceptfds,
 
 /* Descriptors covered by the descriptor sets on the stack; poll() allocates
    larger sets for higher descriptor numbers. */
-#define AOS_POLL_STACK_FDS 1024
+#define AOS_POLL_STACK_FDS   1024
 #define AOS_POLL_STACK_WORDS (AOS_POLL_STACK_FDS / NFDBITS)
 
 #define AOS_POLL_READ   (POLLIN | POLLRDNORM)
 #define AOS_POLL_WRITE  (POLLOUT | POLLWRNORM | POLLWRBAND)
 #define AOS_POLL_EXCEPT (POLLPRI | POLLRDBAND)
 
-static fd_mask aos_poll_bit(int fd)
-{
+static fd_mask aos_poll_bit(int fd) {
     return (fd_mask)(1u << ((unsigned int)fd % NFDBITS));
 }
 
-static void aos_poll_mark(fd_mask *set, int fd)
-{
+static void aos_poll_mark(fd_mask *set, int fd) {
     set[fd / NFDBITS] |= aos_poll_bit(fd);
 }
 
-static int aos_poll_test(const fd_mask *set, int fd)
-{
+static int aos_poll_test(const fd_mask *set, int fd) {
     return (set[fd / NFDBITS] & aos_poll_bit(fd)) != 0;
 }
 
 /* Size of the shared base's descriptor table: every socket of the base has
    a lower number. Returns -1 when the stack does not report it. */
-static long aos_poll_table_size(void)
-{
+static long aos_poll_table_size(void) {
     struct TagItem tags[] = {
         {SBTM_GETVAL(SBTC_DTABLESIZE), 0},
         {TAG_DONE, 0},
@@ -96,8 +89,7 @@ static long aos_poll_table_size(void)
 }
 
 /* Whether fd is a socket of the shared base. */
-static int aos_poll_is_socket(int fd)
-{
+static int aos_poll_is_socket(int fd) {
     int type;
     socklen_t len = sizeof(type);
     return __getsockopt_WB(SocketBase, fd, SOL_SOCKET, SO_TYPE, &type, &len) == 0;
@@ -105,8 +97,7 @@ static int aos_poll_is_socket(int fd)
 
 /* Fills the three sets from fds, skipping entries already marked POLLNVAL.
    Returns the highest descriptor put in a set, or -1. */
-static int aos_poll_fill(const struct pollfd *fds, nfds_t nfds, fd_mask *sets, size_t words)
-{
+static int aos_poll_fill(const struct pollfd *fds, nfds_t nfds, fd_mask *sets, size_t words) {
     fd_mask *rd = sets, *wr = sets + words, *ex = sets + 2 * words;
     int top = -1;
 
@@ -135,8 +126,7 @@ static int aos_poll_fill(const struct pollfd *fds, nfds_t nfds, fd_mask *sets, s
 /* Marks entries that are not sockets of the base as POLLNVAL. With
    table_size >= 0, every descriptor at or above it is marked without asking
    the stack. Returns the number of entries marked by this call. */
-static int aos_poll_mark_invalid(struct pollfd *fds, nfds_t nfds, long table_size)
-{
+static int aos_poll_mark_invalid(struct pollfd *fds, nfds_t nfds, long table_size) {
     int marked = 0;
     for (nfds_t i = 0; i < nfds; ++i) {
         int fd = fds[i].fd;
@@ -152,8 +142,7 @@ static int aos_poll_mark_invalid(struct pollfd *fds, nfds_t nfds, long table_siz
     return marked;
 }
 
-int poll(struct pollfd *fds, nfds_t nfds, int timeout)
-{
+int poll(struct pollfd *fds, nfds_t nfds, int timeout) {
     if (nfds > 0 && fds == NULL) {
         errno = EFAULT;
         return -1;

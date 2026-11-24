@@ -50,12 +50,12 @@
 
 /* Returns from the calling function with -1 and errno set when
    bsdsocket.library could not be opened at program start. */
-#define AOS_NET_REQUIRE_BASE(failure)          \
-    do {                                       \
-        if (SocketBase == NULL) {              \
-            errno = aos_net_open_error;        \
-            return (failure);                  \
-        }                                      \
+#define AOS_NET_REQUIRE_BASE(failure)   \
+    do {                                \
+        if (SocketBase == NULL) {       \
+            errno = aos_net_open_error; \
+            return (failure);           \
+        }                               \
     } while (0)
 
 /* errno value describing why SocketBase is NULL; 0 while it is open. */

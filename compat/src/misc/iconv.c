@@ -24,7 +24,7 @@ static struct Library *CodesetsBase;
 #include <proto/codesets.h>
 #include <proto/exec.h>
 
-#define AOS_ICONV_MAGIC 0x69636f6eUL /* "icon" */
+#define AOS_ICONV_MAGIC    0x69636f6eUL /* "icon" */
 #define AOS_ICONV_NAME_MAX 64
 
 enum aos_charset_kind {
@@ -56,13 +56,11 @@ struct aos_iconv {
 
 static pthread_once_t aos_iconv_once = PTHREAD_ONCE_INIT;
 
-static void aos_iconv_open_library(void)
-{
+static void aos_iconv_open_library(void) {
     CodesetsBase = OpenLibrary((CONST_STRPTR)CODESETSNAME, CODESETSVER);
 }
 
-static void aos_iconv_close_library(void)
-{
+static void aos_iconv_close_library(void) {
     if (CodesetsBase != NULL) {
         CloseLibrary(CodesetsBase);
         CodesetsBase = NULL;
@@ -71,8 +69,7 @@ static void aos_iconv_close_library(void)
 ADD2EXIT(aos_iconv_close_library, 20);
 
 /* Case-insensitive comparison that ignores '-' and '_'. */
-static int aos_iconv_name_is(const char *name, const char *want)
-{
+static int aos_iconv_name_is(const char *name, const char *want) {
     for (;;) {
         while (*name == '-' || *name == '_') {
             ++name;
@@ -98,16 +95,14 @@ static int aos_iconv_name_is(const char *name, const char *want)
     }
 }
 
-static int aos_ucs_cmp(const void *a, const void *b)
-{
+static int aos_ucs_cmp(const void *a, const void *b) {
     ULONG x = ((const struct aos_ucs_code *)a)->ucs;
     ULONG y = ((const struct aos_ucs_code *)b)->ucs;
     return x < y ? -1 : x > y;
 }
 
 /* Fills cs for the character set name; returns 0 or an errno value. */
-static int aos_charset_init(struct aos_charset *cs, const char *name)
-{
+static int aos_charset_init(struct aos_charset *cs, const char *name) {
     static const char *const utf8[] = {"UTF-8", NULL};
     static const char *const ascii[] = {"US-ASCII", "ASCII", "ANSI_X3.4-1968", "646", NULL};
     static const char *const latin1[] = {"ISO-8859-1", "ISO8859-1", "LATIN1", "L1", NULL};
@@ -175,8 +170,7 @@ static int aos_charset_init(struct aos_charset *cs, const char *name)
     return 0;
 }
 
-iconv_t iconv_open(const char *tocode, const char *fromcode)
-{
+iconv_t iconv_open(const char *tocode, const char *fromcode) {
     if (tocode == NULL || fromcode == NULL) {
         errno = EINVAL;
         return (iconv_t)-1;
@@ -218,8 +212,7 @@ iconv_t iconv_open(const char *tocode, const char *fromcode)
     return (iconv_t)cd;
 }
 
-int iconv_close(iconv_t handle)
-{
+int iconv_close(iconv_t handle) {
     struct aos_iconv *cd = (struct aos_iconv *)handle;
     if (cd == NULL || cd == (struct aos_iconv *)-1 || cd->magic != AOS_ICONV_MAGIC) {
         errno = EBADF;
@@ -232,8 +225,7 @@ int iconv_close(iconv_t handle)
 
 /* Decodes one character. Returns the bytes used, 0 for an incomplete UTF-8
    sequence, or -1 for invalid input. */
-static int aos_decode(const struct aos_charset *cs, const UBYTE *in, size_t left, ULONG *ucs)
-{
+static int aos_decode(const struct aos_charset *cs, const UBYTE *in, size_t left, ULONG *ucs) {
     UBYTE c = in[0];
     switch (cs->kind) {
     case AOS_CS_ASCII:
@@ -301,8 +293,7 @@ static int aos_decode(const struct aos_charset *cs, const UBYTE *in, size_t left
 
 /* Encodes one code point into buf (at least 4 bytes). Returns the length,
    or -1 when the target cannot represent it. */
-static int aos_encode(const struct aos_charset *cs, ULONG ucs, UBYTE *buf)
-{
+static int aos_encode(const struct aos_charset *cs, ULONG ucs, UBYTE *buf) {
     switch (cs->kind) {
     case AOS_CS_ASCII:
         if (ucs >= 0x80) {
@@ -353,8 +344,7 @@ static int aos_encode(const struct aos_charset *cs, ULONG ucs, UBYTE *buf)
 }
 
 size_t iconv(iconv_t handle, char **inbuf, size_t *inbytesleft,
-             char **outbuf, size_t *outbytesleft)
-{
+             char **outbuf, size_t *outbytesleft) {
     struct aos_iconv *cd = (struct aos_iconv *)handle;
     if (cd == NULL || cd == (struct aos_iconv *)-1 || cd->magic != AOS_ICONV_MAGIC) {
         errno = EBADF;

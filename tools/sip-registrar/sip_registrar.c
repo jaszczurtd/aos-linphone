@@ -32,7 +32,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define MAX_MSG 8192
+#define MAX_MSG     8192
 #define MAX_HEADERS 64
 
 struct header {
@@ -54,8 +54,7 @@ struct config {
     char nonce[33];
 };
 
-static void md5_hex(const char *text, char out[33])
-{
+static void md5_hex(const char *text, char out[33]) {
     unsigned char digest[EVP_MAX_MD_SIZE];
     unsigned int len = 0;
     EVP_Digest(text, strlen(text), digest, &len, EVP_md5(), NULL);
@@ -65,8 +64,7 @@ static void md5_hex(const char *text, char out[33])
     out[32] = '\0';
 }
 
-static char *trim(char *s)
-{
+static char *trim(char *s) {
     while (*s == ' ' || *s == '\t') {
         ++s;
     }
@@ -78,12 +76,17 @@ static char *trim(char *s)
 }
 
 /* Full header names for the compact forms SIP allows. */
-static const char *expand_name(const char *name)
-{
+static const char *expand_name(const char *name) {
     static const struct {
         const char *compact, *full;
-    } map[] = {{"v", "Via"}, {"f", "From"}, {"t", "To"}, {"i", "Call-ID"},
-               {"m", "Contact"}, {"l", "Content-Length"}};
+    } map[] = {
+        {"v", "Via"},
+        {"f", "From"},
+        {"t", "To"},
+        {"i", "Call-ID"},
+        {"m", "Contact"},
+        {"l", "Content-Length"},
+    };
     for (size_t i = 0; i < sizeof(map) / sizeof(map[0]); ++i) {
         if (strcasecmp(name, map[i].compact) == 0) {
             return map[i].full;
@@ -92,8 +95,7 @@ static const char *expand_name(const char *name)
     return name;
 }
 
-static int parse_request(char *msg, struct request *req)
-{
+static int parse_request(char *msg, struct request *req) {
     memset(req, 0, sizeof(*req));
     char *line = strtok(msg, "\n");
     if (line == NULL || sscanf(line, "%31s %511s SIP/2.0", req->method, req->uri) != 2) {
@@ -116,8 +118,7 @@ static int parse_request(char *msg, struct request *req)
     return 0;
 }
 
-static const char *get_header(const struct request *req, const char *name)
-{
+static const char *get_header(const struct request *req, const char *name) {
     for (int i = 0; i < req->count; ++i) {
         if (strcasecmp(req->headers[i].name, name) == 0) {
             return req->headers[i].value;
@@ -127,8 +128,7 @@ static const char *get_header(const struct request *req, const char *name)
 }
 
 /* Value of a parameter in a digest header: name="value" or name=value. */
-static int digest_param(const char *header, const char *name, char *out, size_t size)
-{
+static int digest_param(const char *header, const char *name, char *out, size_t size) {
     size_t n = strlen(name);
     for (const char *p = header; (p = strcasestr(p, name)) != NULL; p += n) {
         if (p != header && isalnum((unsigned char)p[-1])) {
@@ -162,10 +162,9 @@ static int digest_param(const char *header, const char *name, char *out, size_t 
     return -1;
 }
 
-static int check_digest(const struct config *cfg, const struct request *req, const char *auth)
-{
-    char user[128], realm[128], nonce[128], uri[512], response[64], qop[32] = "",
-         nc[32] = "", cnonce[128] = "";
+static int check_digest(const struct config *cfg, const struct request *req, const char *auth) {
+    char user[128], realm[128], nonce[128], uri[512], response[64];
+    char qop[32] = "", nc[32] = "", cnonce[128] = "";
     if (strncasecmp(auth, "Digest", 6) != 0 ||
         digest_param(auth, "username", user, sizeof(user)) != 0 ||
         digest_param(auth, "realm", realm, sizeof(realm)) != 0 ||
@@ -197,8 +196,7 @@ static int check_digest(const struct config *cfg, const struct request *req, con
 }
 
 /* Expiry of the binding: the contact's expires= parameter, else Expires. */
-static long binding_expires(const struct request *req)
-{
+static long binding_expires(const struct request *req) {
     const char *contact = get_header(req, "Contact");
     const char *p = contact != NULL ? strcasestr(contact, "expires=") : NULL;
     if (p != NULL) {
@@ -208,8 +206,7 @@ static long binding_expires(const struct request *req)
     return e != NULL ? strtol(e, NULL, 10) : 3600;
 }
 
-static void append(char *out, size_t size, const char *fmt, ...)
-{
+static void append(char *out, size_t size, const char *fmt, ...) {
     size_t used = strlen(out);
     va_list ap;
     va_start(ap, fmt);
@@ -218,8 +215,7 @@ static void append(char *out, size_t size, const char *fmt, ...)
 }
 
 /* Status line and the headers every response copies from its request. */
-static void response_head(char *out, size_t size, const struct request *req, const char *status)
-{
+static void response_head(char *out, size_t size, const struct request *req, const char *status) {
     out[0] = '\0';
     append(out, size, "SIP/2.0 %s\r\n", status);
     for (int i = 0; i < req->count; ++i) {
@@ -235,8 +231,7 @@ static void response_head(char *out, size_t size, const struct request *req, con
     append(out, size, "Server: aos-linphone sip-registrar\r\n");
 }
 
-static void new_nonce(struct config *cfg)
-{
+static void new_nonce(struct config *cfg) {
     unsigned char raw[16];
     FILE *f = fopen("/dev/urandom", "rb");
     if (f == NULL || fread(raw, 1, sizeof(raw), f) != sizeof(raw)) {
@@ -252,8 +247,7 @@ static void new_nonce(struct config *cfg)
     }
 }
 
-int main(int argc, char **argv)
-{
+int main(int argc, char **argv) {
     const char *address = "0.0.0.0";
     int port = 5060, timeout = 120, exit_on_cycle = 0, opt;
     struct config cfg = {"alice", "secret", "aos-test", ""};
@@ -269,7 +263,8 @@ int main(int argc, char **argv)
         case 'x': exit_on_cycle = 1; break;
         default:
             fprintf(stderr, "usage: %s [-a address] [-p port] [-u user] [-w password] "
-                            "[-r realm] [-t seconds] [-x]\n", argv[0]);
+                            "[-r realm] [-t seconds] [-x]\n",
+                    argv[0]);
             return 2;
         }
     }
@@ -327,7 +322,8 @@ int main(int argc, char **argv)
             response_head(out, sizeof(out), &req, "401 Unauthorized");
             append(out, sizeof(out),
                    "WWW-Authenticate: Digest realm=\"%s\", nonce=\"%s\", algorithm=MD5, qop=\"auth\"\r\n"
-                   "Content-Length: 0\r\n\r\n", cfg.realm, cfg.nonce);
+                   "Content-Length: 0\r\n\r\n",
+                   cfg.realm, cfg.nonce);
             sendto(s, out, strlen(out), 0, (struct sockaddr *)&from, flen);
             fflush(stdout);
             continue;

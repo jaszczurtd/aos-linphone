@@ -30,11 +30,10 @@
 #include <time.h>
 #include <unistd.h>
 
-#define DATA_DIR "RAM:aos-register"
+#define DATA_DIR      "RAM:aos-register"
 #define RESOURCES_DIR "PROGDIR:share"
 
-static const char *state_name(LinphoneRegistrationState state)
-{
+static const char *state_name(LinphoneRegistrationState state) {
     switch (state) {
     case LinphoneRegistrationNone: return "None";
     case LinphoneRegistrationProgress: return "Progress";
@@ -49,8 +48,7 @@ static const char *state_name(LinphoneRegistrationState state)
 /* Runs the core until the account reaches the wanted state, fails or the
    time runs out. Returns 1 when the wanted state was reached. */
 static int run_until(LinphoneCore *core, LinphoneAccount *account,
-                     LinphoneRegistrationState wanted, int seconds)
-{
+                     LinphoneRegistrationState wanted, int seconds) {
     LinphoneRegistrationState last = (LinphoneRegistrationState)-1;
     time_t end = time(NULL) + seconds;
     while (time(NULL) < end) {
@@ -72,8 +70,7 @@ static int run_until(LinphoneCore *core, LinphoneAccount *account,
     return 0;
 }
 
-int main(int argc, char **argv)
-{
+int main(int argc, char **argv) {
     if (argc < 3) {
         fprintf(stderr, "usage: %s <identity> <password> [<proxy>] [<seconds>]\n", argv[0]);
         return 20;

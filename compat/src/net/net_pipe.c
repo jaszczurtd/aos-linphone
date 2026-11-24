@@ -20,13 +20,11 @@
 /* Connections accepted from someone else before our own arrives. */
 #define AOS_PIPE_MAX_STRANGERS 8
 
-static int aos_pipe_same_addr(const struct sockaddr_in *a, const struct sockaddr_in *b)
-{
+static int aos_pipe_same_addr(const struct sockaddr_in *a, const struct sockaddr_in *b) {
     return a->sin_port == b->sin_port && a->sin_addr.s_addr == b->sin_addr.s_addr;
 }
 
-static void aos_pipe_close(int fd)
-{
+static void aos_pipe_close(int fd) {
     if (fd >= 0) {
         int saved = errno;
         close(fd);
@@ -34,8 +32,7 @@ static void aos_pipe_close(int fd)
     }
 }
 
-int pipe(int fds[2])
-{
+int pipe(int fds[2]) {
     AOS_NET_REQUIRE_BASE(-1);
     if (fds == NULL) {
         errno = EFAULT;

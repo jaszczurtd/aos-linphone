@@ -18,8 +18,7 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
-static int udp_socket(struct sockaddr_in *addr)
-{
+static int udp_socket(struct sockaddr_in *addr) {
     int s = socket(AF_INET, SOCK_DGRAM, 0);
     socklen_t len = sizeof(*addr);
     memset(addr, 0, sizeof(*addr));
@@ -33,8 +32,7 @@ static int udp_socket(struct sockaddr_in *addr)
     return s;
 }
 
-static void check_poll_basics(void)
-{
+static void check_poll_basics(void) {
     struct sockaddr_in ra, sa;
     int r = udp_socket(&ra);
     int s = udp_socket(&sa);
@@ -109,8 +107,7 @@ static void check_poll_basics(void)
 
 static int control_fds[2];
 
-static void *waker(void *arg)
-{
+static void *waker(void *arg) {
     (void)arg;
     aos_test_sleep_ms(100);
     /* belle_sip_main_loop_wake_up(): blocking write end */
@@ -119,8 +116,7 @@ static void *waker(void *arg)
 }
 
 /* belle-sip's clear_pipe(): read until EAGAIN */
-static ssize_t clear_pipe(int fd)
-{
+static ssize_t clear_pipe(int fd) {
     char buffer[1024];
     ssize_t nread, total = 0;
     do {
@@ -132,8 +128,7 @@ static ssize_t clear_pipe(int fd)
     return nread < 0 && errno != EAGAIN && errno != EWOULDBLOCK ? -1 : total;
 }
 
-static void check_pipe_wakeup(void)
-{
+static void check_pipe_wakeup(void) {
     AOS_CHECK(pipe(control_fds) == 0, "pipe()");
     printf("info: pipe descriptors %d and %d\n", control_fds[0], control_fds[1]);
     AOS_CHECK(fcntl(control_fds[0], F_SETFL, O_NONBLOCK) == 0, "O_NONBLOCK on the read end");
@@ -172,7 +167,7 @@ static void check_pipe_wakeup(void)
 /* ---- two threads sending and receiving at once ---------------------------- */
 
 #define STREAM_PACKETS 300
-#define STREAM_SIZE 172 /* an RTP packet with 160 bytes of G.711 */
+#define STREAM_SIZE    172 /* an RTP packet with 160 bytes of G.711 */
 
 struct stream {
     int sock;
@@ -182,8 +177,7 @@ struct stream {
     int send_errors;
 };
 
-static void *run_stream(void *arg)
-{
+static void *run_stream(void *arg) {
     struct stream *st = arg;
     unsigned char packet[STREAM_SIZE];
     int expected = 0;
@@ -224,8 +218,7 @@ static void *run_stream(void *arg)
     return NULL;
 }
 
-static void check_two_streams(void)
-{
+static void check_two_streams(void) {
     struct stream a, b;
     memset(&a, 0, sizeof(a));
     memset(&b, 0, sizeof(b));
@@ -247,8 +240,7 @@ static void check_two_streams(void)
     close(b.sock);
 }
 
-int main(void)
-{
+int main(void) {
     AOS_CHECK(aos_net_status() == 0, "bsdsocket.library opened before main()");
     if (aos_net_status() != 0) {
         return aos_test_result();
