@@ -1,0 +1,39 @@
+# Patches for linphone-sdk
+
+`third_party/linphone-sdk` is pinned to an upstream revision and stays
+unmodified in git. The few source changes the AROS build needs live here as
+patch files and go on top of the checked-out submodule before the SDK is
+configured. Everything else (POSIX gaps, sockets, build settings) is handled
+outside the SDK, in `compat/`, `deps/`, `cmake/` and `sdk/`.
+
+## Applying
+
+```sh
+git submodule update --init third_party/linphone-sdk
+patches/apply.sh
+```
+
+`apply.sh` applies the patches in file name order and skips the ones already
+applied, so it is safe to run again. `patches/apply.sh --check` only reports
+the state of each patch (`missing`, `applied` or `conflict`), and
+`patches/apply.sh --reverse` takes them all out again, last one first.
+
+A patch reported as `conflict` applies neither forwards nor backwards: the
+submodule is at another revision, or local edits touch the same lines. Moving
+the submodule to a new upstream revision means refreshing the patches: apply
+them by hand with `git -C third_party/linphone-sdk apply --3way`, resolve,
+and regenerate the patch file from `git diff`.
+
+The patches touch files of the superproject only, not of its nested
+submodules, so `git -C third_party/linphone-sdk diff` shows all of them.
+
+## The patches
+
+| Patch | Why |
+|---|---|
+| `0001-bctoolbox-thread-name-else.patch` | `bctbx_set_self_thread_name()` ends its platform chain with a bare `#elif`, which GCC rejects on systems that are neither Linux, Apple nor Windows. |
+| `0002-liblinphone-paths-aros.patch` | liblinphone picks its data and config paths per platform and stops with `#error` on any other system; AROS uses the Linux variant (`$HOME`, falling back to the current directory). |
+| `0003-mediastreamer2-srtp-stub-signatures.patch` | Without libsrtp, three SRTP stubs in `ms_srtp.cpp` take parameter types that differ from their declarations in `ms_srtp.h`. |
+| `0004-bctoolbox-config-bcunit-only-with-tester.patch` | The installed `BCToolboxConfig.cmake` of a static build always looks for BCUnit, even when the tester library is not built, so programs linking the SDK fail to configure. |
+| `0005-mediastreamer2-crypto-suite-name-without-srtp.patch` | `ms_crypto_suite_to_string()` is defined only when libsrtp is used, but liblinphone calls it in any build; the function does not need libsrtp. |
+| `0006-bctoolbox-belle-sip-nonzero-thread-id-aros.patch` | AROS gives the initial task the pthread id 0, while belle-sip, liblinphone and the bctoolbox logger take a thread id of 0 to mean "none". belle-sip then never frees its pools of unowned objects. On AROS both thread id helpers return `pthread_self() + 1`. |

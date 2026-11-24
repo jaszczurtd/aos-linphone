@@ -1,0 +1,5 @@
+[submodule "third_party/linphone-sdk"]
+	path = third_party/linphone-sdk
+	url = https://gitlab.linphone.org/BC/public/linphone-sdk.git
+	branch = release/5.5
+	shallow = true

@@ -1,0 +1,15 @@
+diff --git a/bctoolbox/cmake/BCToolboxConfig.cmake.in b/bctoolbox/cmake/BCToolboxConfig.cmake.in
+index febba5baf4..1d8ef9e133 100644
+--- a/bctoolbox/cmake/BCToolboxConfig.cmake.in
++++ b/bctoolbox/cmake/BCToolboxConfig.cmake.in
+@@ -76,7 +76,9 @@ else()
+ 	if(@Decaf_FOUND@)
+ 		find_dependency(Decaf)
+ 	endif()
+-	find_dependency(BCUnit)
++	if(@ENABLE_TESTS_COMPONENT@)
++		find_dependency(BCUnit)
++	endif()
+ endif()
+ 
+ set_and_check(BCToolbox_CMAKE_DIR "@PACKAGE_CMAKE_MODULES_INSTALL_DIR@")

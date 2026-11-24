@@ -1,0 +1,13 @@
+diff --git a/bctoolbox/src/utils/port.c b/bctoolbox/src/utils/port.c
+index 5d66a5ed1f..bd5f5e787f 100644
+--- a/bctoolbox/src/utils/port.c
++++ b/bctoolbox/src/utils/port.c
+@@ -361,7 +361,7 @@ void bctbx_set_self_thread_name(const char *name) {
+ 	prctl(PR_SET_NAME, name, NULL, NULL, NULL);
+ #elif TARGET_OS_MAC
+ 	pthread_setname_np(name);
+-#elif
++#else
+ 	bctbx_warning("bctbx_set_self_thread_name(): not implemented on this platform.");
+ #endif
+ }

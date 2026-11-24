@@ -1,0 +1,31 @@
+diff --git a/mediastreamer2/src/crypto/ms_srtp.cpp b/mediastreamer2/src/crypto/ms_srtp.cpp
+index d339253476..2ef010c286 100644
+--- a/mediastreamer2/src/crypto/ms_srtp.cpp
++++ b/mediastreamer2/src/crypto/ms_srtp.cpp
+@@ -1760,7 +1760,7 @@ extern "C" int ms_media_stream_sessions_set_srtp_recv_key_b64(struct _MSMediaStr
+ }
+ 
+ extern "C" int ms_media_stream_sessions_set_srtp_recv_key(
+-    MSMediaStreamSessions *sessions, MSCryptoSuite suite, const char *key, size_t key_length, MSSrtpKeySource source) {
++    MSMediaStreamSessions *sessions, MSCryptoSuite suite, const uint8_t *key, size_t key_length, MSSrtpKeySource source) {
+ 	ms_error("Unable to set srtp recv key: srtp support disabled in mediastreamer2");
+ 	return -1;
+ }
+@@ -1774,7 +1774,7 @@ extern "C" int ms_media_stream_sessions_set_srtp_send_key_b64(MSMediaStreamSessi
+ }
+ 
+ extern "C" int ms_media_stream_sessions_set_srtp_send_key(
+-    MSMediaStreamSessions *sessions, MSCryptoSuite suite, const char *key, size_t key_length, MSSrtpKeySource source) {
++    MSMediaStreamSessions *sessions, MSCryptoSuite suite, const uint8_t *key, size_t key_length, MSSrtpKeySource source) {
+ 	ms_error("Unable to set srtp send key: srtp support disabled in mediastreamer2");
+ 	return -1;
+ }
+@@ -1817,7 +1817,7 @@ extern "C" int ms_media_stream_sessions_set_ekt_mode(MSMediaStreamSessions *sess
+ 	ms_error("Unable to set EKT operation mode: srtp support disabled in mediastreamer2");
+ 	return -1;
+ }
+-extern "C" int ms_media_stream_sessions_set_ekt(MSMediaStreamSessions *sessions, MSEKTParametersSet *ekt) {
++extern "C" int ms_media_stream_sessions_set_ekt(MSMediaStreamSessions *sessions, const MSEKTParametersSet *ekt) {
+ 	ms_error("Unable to set EKT key: srtp support disabled in mediastreamer2");
+ 	return -1;
+ }

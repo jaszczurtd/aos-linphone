@@ -1,0 +1,22 @@
+diff --git a/mediastreamer2/src/crypto/ms_srtp.cpp b/mediastreamer2/src/crypto/ms_srtp.cpp
+--- a/mediastreamer2/src/crypto/ms_srtp.cpp
++++ b/mediastreamer2/src/crypto/ms_srtp.cpp
+@@ -1407,6 +1407,9 @@
+ 	return TRUE;
+ }
+ 
++#endif /* HAVE_SRTP */
++
++/* Needed without SRTP too: liblinphone logs crypto suite names. */
+ extern "C" const char *ms_crypto_suite_to_string(MSCryptoSuite suite) {
+ 	switch (suite) {
+ 		case MS_CRYPTO_SUITE_INVALID:
+@@ -1452,6 +1455,8 @@
+ 	return "<invalid-or-unsupported-suite>";
+ }
+ 
++#ifdef HAVE_SRTP
++
+ extern "C" void ms_srtp_context_delete(MSSrtpCtx *session) {
+ 	if (session->mSend.mSrtp) srtp_dealloc(session->mSend.mSrtp);
+ 	if (session->mRecv.mSrtp) srtp_dealloc(session->mRecv.mSrtp);
