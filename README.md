@@ -44,3 +44,10 @@ before you start the phone; see
 how to build and test its parts and the known limits of the system.
 [CONTRIBUTING.md](CONTRIBUTING.md) covers the git hooks, the code style and
 the form of commit messages.
+
+## Licence
+
+aos-linphone is free software under the GNU Affero General Public License,
+version 3 or later, the same licence as liblinphone. See
+[LICENCE.md](LICENCE.md) for the terms and the licences of the libraries
+it uses.
