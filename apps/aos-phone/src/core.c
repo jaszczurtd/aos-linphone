@@ -7,6 +7,7 @@
 #include "queue.h"
 
 #include "ahi/ahi_sound.h"
+#include "video/camera.h"
 #include "video/mire_camera.h"
 #include "video/video_display.h"
 
@@ -722,8 +723,9 @@ static void push_started(void) {
 }
 
 /* The core chooses its sound devices before the AHI card exists. Reloading
-   them makes the card the default playback device but keeps the empty list
-   of ring devices: when no device rings, ring on the first one that plays. */
+   them makes the card the default playback device, and the capture device
+   when it captures, but keeps the empty list of ring devices: when no
+   device rings, ring on the first one that plays. */
 static void choose_ring_device(void) {
     CORE_THREAD_ONLY();
     bctbx_list_t *devices = linphone_core_get_extended_audio_devices(g.core);
@@ -818,13 +820,21 @@ static int create_core(void) {
     /* The devices of the program join the factory after the core has
        chosen its devices; see choose_ring_device() and choose_camera(). */
     MSFactory *ms_factory = linphone_core_get_ms_factory(g.core);
-    aos_ahi_register(ms_factory);
+    aos_ahi_register(ms_factory, g.config.capture);
     aos_mire_register(ms_factory);
+    if (g.config.extra_camera != NULL && aos_camera_register(ms_factory, g.config.extra_camera) != 0) {
+        push_error("the extra camera could not be added");
+    }
     aos_video_display_register(ms_factory);
     linphone_core_reload_sound_devices(g.core);
     linphone_core_reload_video_devices(g.core);
     choose_ring_device();
     setup_video();
+    if (g.config.capture_without_echo) {
+        /* Before linphone_core_start(): the core saves the setting only
+           once it runs. */
+        linphone_core_enable_echo_cancellation(g.core, FALSE);
+    }
 
     /* SIP over UDP only, on the configured port or a random one. */
     LinphoneTransports *transports = linphone_factory_create_transports(g.factory);

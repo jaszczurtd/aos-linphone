@@ -6,11 +6,15 @@ exchanges text messages. You hear the other side and the ring tone through
 AHI and see its picture in the call window. The program does not take
 sound from a microphone or pictures from a camera yet: the other side hears
 silence, or a sound file you play into the call, and sees one of the test
-pictures of mediastreamer2. Calls can also be recorded to files.
+pictures of mediastreamer2. For tests, prepared raw files can stand in for
+the microphone and the camera (see [Test files](#test-files)). Calls can
+also be recorded to files.
 
 ```
 aos-phone [DATA=<directory>] [PORT=<number>] [RECORD=<directory>]
           [CAMERA=<name>] [VERBOSE]
+          [TESTVIDEO=<file>] [TESTVIDEOSIZE=<width>x<height>] [TESTVIDEOFPS=<n>]
+          [TESTSOUND=<file>] [TESTSOUNDRATE=<n>]
 ```
 
 - `DATA`: where the program keeps its settings, including the account and
@@ -25,11 +29,14 @@ aos-phone [DATA=<directory>] [PORT=<number>] [RECORD=<directory>]
   `call-<date>-<time>-<n>.wav`.
 - `CAMERA`: the camera video comes from, given by a part of its name:
   `Mire` sends a moving test picture, `StaticImage` a still picture, which
-  is also the default. A name no camera has keeps the default and says so
-  in the status line.
+  is also the default, and `File` the pictures of `TESTVIDEO`. A name no
+  camera has keeps the default and says so in the status line.
 - `VERBOSE`: prints all messages of liblinphone, not only warnings and
   errors. They tell, among other things, which camera, codecs and picture
   sizes a call uses.
+- `TESTVIDEO`, `TESTVIDEOSIZE`, `TESTVIDEOFPS`: add a camera that plays a
+  file of raw pictures; `TESTSOUND`, `TESTSOUNDRATE`: let the microphone
+  of the AHI card play a file of raw sound. See [Test files](#test-files).
 
 The program needs AROSTCP running and the belr grammars in
 `share/belr/grammars/` next to it, as `aos-register` does (see
@@ -51,14 +58,53 @@ from `share/images/nowebcamCIF.jpg`, which the SDK installs into
 `<prefix>/share/images/`; copy it next to the program too, or the camera
 sends a black picture.
 
-Started from its icon, `aos-phone` takes the same settings from the tool
-types `DATA`, `PORT`, `RECORD`, `CAMERA` and `VERBOSE`. Its output then
+Started from its icon, `aos-phone` takes the same settings from tool types
+of the same names. Its output then
 goes nowhere, so no window opens for it. The tool type `DEBUG` shows the
 output in a console window, which stays open after the program ends until
 you close it. The icon comes with these tool types switched off, in
 parentheses: remove the parentheses in the icon information to switch one
 on. When the program cannot start
 from its icon (no network, for one), it says why in a requester.
+
+## Test files
+
+Until the program can use a real microphone and camera, two options feed
+calls from files instead, through the same devices: the camera appears
+among the others, and the AHI card gains a microphone. The files are raw,
+without a header, so their format comes with the options.
+
+`TESTVIDEO=<file>` adds the camera `File: <file name>`. The file holds
+pictures one after another, 3 bytes per pixel in the order red, green,
+blue, rows from the top. `TESTVIDEOSIZE` gives their size (default
+`320x240`) and `TESTVIDEOFPS` how many play per second (default 15, at
+most 60). Calls send video from this camera unless `CAMERA` names another
+one.
+
+`TESTSOUND=<file>` makes the AHI card capture the file: signed 16-bit mono
+samples in the byte order of the processor, `TESTSOUNDRATE` of them per
+second (default 16000). The program resamples them for the codec of the
+call, and it turns echo cancellation off, since a file holds no echo of
+the loudspeaker.
+
+Both files play in a loop, at the pace of their format, for as long as the
+call runs. The program checks them at start and refuses to start when one
+cannot be opened or is shorter than one picture of the given size.
+
+On Linux, ffmpeg makes such files from any video or sound file, or from
+its own test pattern:
+
+```sh
+ffmpeg -f lavfi -i testsrc2=size=320x240:rate=15 -t 3 \
+       -f rawvideo -pix_fmt rgb24 clip.rgb
+ffmpeg -i speech.wav -ac 1 -ar 16000 -f s16le voice.raw
+```
+
+The first command makes 3 seconds of a moving test pattern with a frame
+counter, 45 pictures of 230400 bytes each; the second turns a sound file
+into 16 kHz mono samples. `s16le` is the byte order of x86 processors; for
+a big-endian Amiga use `s16be`. Then start the program with, for example,
+`TESTVIDEO=RAM:clip.rgb TESTSOUND=RAM:voice.raw`.
 
 ## Using it
 
@@ -151,14 +197,14 @@ cmake -S apps/aos-phone -B build-phone -G Ninja \
 cmake --build build-phone
 ```
 
-The build gives `aos-phone`, `aos-phone.info`, `aos-phone-cmd`,
-`test_queue` and `test_video_display`. `aos-phone.info` is the Workbench icon; copy it next to the
-program. `ilbmtoicon` is a host tool built with AROS itself; without
+The build gives `aos-phone`, `aos-phone.info`, `aos-phone-cmd` and the
+tests `test_queue`, `test_video_display` and `test_capture`.
+`aos-phone.info` is the Workbench icon; copy it next to the program. `ilbmtoicon` is a host tool built with AROS itself; without
 `AOS_ILBMTOICON` (or `ilbmtoicon` in the `PATH`) the build skips the icon.
 The icon is made from `icons/aos-phone.png` and `icons/aos-phone.info.src`,
 which also holds its stack size and tool types. With
 `-DAOS_TEST_RUNNER=...`, as for the tests of the compatibility layer (see
-[ARCHITECTURE.md](../../ARCHITECTURE.md#running-the-tests)), CTest runs both
+[ARCHITECTURE.md](../../ARCHITECTURE.md#running-the-tests)), CTest runs the
 tests on AROS.
 
 ## Structure
@@ -170,13 +216,15 @@ tests on AROS.
 | `src/gui.c`, `src/gui.h` | the Zune windows, the ARexx port and the handling of core events |
 | `src/text.c`, `src/text.h` | conversion between UTF-8 and the system code page |
 | `src/video.c`, `src/video.h` | the Zune area that draws one picture of a call |
-| `src/main.c` | arguments, tool types and start-up |
+| `src/main.c` | arguments, tool types, test files and start-up |
 | `src/cmd.c` | `aos-phone-cmd` |
 | `icons/` | the image and description of the Workbench icon |
 | `tests/test_queue.c` | tests of the queues, run on AROS |
+| `../../devices/source.h` | the interface of the sources a camera or microphone takes its data from |
 | `../../devices/ahi/` | the AHI sound card for mediastreamer2, shared with other programs |
-| `../../devices/video/` | the video display and the Mire test camera for mediastreamer2 |
-| `../../devices/tests/test_video_display.c` | tests of the video display, run on AROS |
+| `../../devices/video/` | the video display, the camera that shows a source and the Mire test camera |
+| `../../devices/files/` | sources that play raw picture and sound files |
+| `../../devices/tests/` | tests of the video display and of the capture devices, run on AROS |
 
 The core thread creates the linphone core and makes every liblinphone call,
 including the callbacks; each such function checks that it runs in that

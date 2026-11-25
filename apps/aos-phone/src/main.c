@@ -4,6 +4,8 @@
  *
  * usage: aos-phone [DATA=<directory>] [PORT=<number>] [RECORD=<directory>]
  *                  [CAMERA=<name>] [VERBOSE]
+ *                  [TESTVIDEO=<file>] [TESTVIDEOSIZE=<w>x<h>] [TESTVIDEOFPS=<n>]
+ *                  [TESTSOUND=<file>] [TESTSOUNDRATE=<n>]
  *
  *   DATA  where the linphone core keeps its configuration, including the
  *         account; default PROGDIR:aos-phone-data. It must be a directory,
@@ -16,10 +18,18 @@
  *         Mire (a moving test picture) or StaticImage; default the camera the
  *         linphone core chose.
  *   VERBOSE  prints all liblinphone messages, not only warnings and errors.
+ *   TESTVIDEO  adds the camera "File: <file name>", which plays a file of
+ *         raw RGB24 pictures in a loop, of TESTVIDEOSIZE pixels (default
+ *         320x240) at TESTVIDEOFPS pictures per second (default 15). Calls
+ *         send video from it unless CAMERA names another camera.
+ *   TESTSOUND  makes the AHI card capture a file of raw 16-bit mono
+ *         samples in the byte order of the processor, played in a loop at
+ *         TESTSOUNDRATE samples per second (default 16000), so calls send
+ *         it as the sound of the microphone, without echo cancellation.
  *
  * Started from its icon, the program takes the same settings from the tool
- * types DATA, PORT, RECORD, CAMERA and VERBOSE. Its output then goes nowhere,
- * unless the tool type DEBUG asks for a console window.
+ * types of the same names. Its output then goes nowhere, unless the tool
+ * type DEBUG asks for a console window.
  *
  * The SIP parsers read their grammars from PROGDIR:share/belr/grammars,
  * the ring tones come from PROGDIR:share/sounds/linphone, and the picture of
@@ -35,6 +45,7 @@
 #include "text.h"
 
 #include "aos/net.h"
+#include "files/file_source.h"
 
 #include <aros/startup.h>
 #include <dos/dos.h>
@@ -48,9 +59,16 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
+#include <strings.h>
 
 #define DEFAULT_DATA_DIR "PROGDIR:aos-phone-data"
 #define RESOURCES_DIR    "PROGDIR:share"
+
+#define DEFAULT_TEST_WIDTH  320
+#define DEFAULT_TEST_HEIGHT 240
+#define DEFAULT_TEST_FPS    15
+#define DEFAULT_TEST_RATE   16000
 
 /* The interface task: Zune and the C library need more than the default
    stack of a Shell command. */
@@ -68,11 +86,32 @@ struct settings {
     int sip_port;
     int verbose;
     int debug;
+    /* One byte more than a source takes, so that a path too long is
+       reported as such instead of being cut. */
+    char test_video[AOS_FILE_PATH_MAX + 1]; /* "": no file camera */
+    char test_video_size[32];               /* "": the default size */
+    int test_video_fps;
+    char test_sound[AOS_FILE_PATH_MAX + 1]; /* "": the AHI card does not capture */
+    int test_sound_rate;
 };
 
+/* The sources of the test files; the core thread uses them until it ends. */
+static struct aos_file_video test_video;
+static struct aos_file_audio test_sound;
+
+/* Copies a setting, cut to the size of dst. */
+static void copy_setting(char *dst, size_t size, const char *value) {
+    size_t len = strlen(value) < size - 1 ? strlen(value) : size - 1;
+    memcpy(dst, value, len);
+    dst[len] = '\0';
+}
+
 static int read_arguments(struct settings *settings) {
-    SIPTR args[5] = {0, 0, 0, 0, 0};
-    struct RDArgs *rdargs = ReadArgs((CONST_STRPTR) "DATA/K,PORT/K/N,RECORD/K,CAMERA/K,VERBOSE/S", args, NULL);
+    SIPTR args[10] = {0};
+    struct RDArgs *rdargs = ReadArgs((CONST_STRPTR) "DATA/K,PORT/K/N,RECORD/K,CAMERA/K,VERBOSE/S,"
+                                                    "TESTVIDEO/K,TESTVIDEOSIZE/K,TESTVIDEOFPS/K/N,"
+                                                    "TESTSOUND/K,TESTSOUNDRATE/K/N",
+                                     args, NULL);
     if (rdargs == NULL) {
         PrintFault(IoErr(), (CONST_STRPTR) "aos-phone");
         return -1;
@@ -90,6 +129,21 @@ static int read_arguments(struct settings *settings) {
         snprintf(settings->camera, sizeof(settings->camera), "%s", (const char *)args[3]);
     }
     settings->verbose = args[4] != 0;
+    if (args[5] != 0) {
+        copy_setting(settings->test_video, sizeof(settings->test_video), (const char *)args[5]);
+    }
+    if (args[6] != 0) {
+        copy_setting(settings->test_video_size, sizeof(settings->test_video_size), (const char *)args[6]);
+    }
+    if (args[7] != 0) {
+        settings->test_video_fps = (int)*(LONG *)args[7];
+    }
+    if (args[8] != 0) {
+        copy_setting(settings->test_sound, sizeof(settings->test_sound), (const char *)args[8]);
+    }
+    if (args[9] != 0) {
+        settings->test_sound_rate = (int)*(LONG *)args[9];
+    }
     FreeArgs(rdargs);
     return 0;
 }
@@ -107,8 +161,31 @@ static int fail(const char *message) {
     return 20;
 }
 
-/* Takes DATA, PORT, RECORD, CAMERA, VERBOSE and DEBUG from the icon the
-   program was started from. */
+/* The value of the tool type name: "" for a bare NAME, the text after '='
+   for NAME=value, NULL when the icon has no such tool type. It compares the
+   whole name, unlike FindToolType() of AROS, which also takes a tool type
+   that only starts with the name: TESTVIDEO would find TESTVIDEOSIZE=... */
+static const char *tool_type(const STRPTR *types, const char *name) {
+    size_t len = strlen(name);
+    for (; types != NULL && *types != NULL; ++types) {
+        const char *type = (const char *)*types;
+        if (strncasecmp(type, name, len) == 0 && (type[len] == '=' || type[len] == '\0')) {
+            return type[len] == '=' ? type + len + 1 : type + len;
+        }
+    }
+    return NULL;
+}
+
+/* Copies the text value of a tool type; an empty one is ignored. */
+static void path_tool_type(const STRPTR *types, const char *name, char *dst, size_t size) {
+    const char *value = tool_type(types, name);
+    if (value != NULL && value[0] != '\0') {
+        copy_setting(dst, size, value);
+    }
+}
+
+/* Takes the settings and DEBUG from the tool types of the icon the program
+   was started from. */
 static void read_tool_types(struct settings *settings) {
     struct WBArg *arg = &WBenchMsg->sm_ArgList[0];
     BPTR old_dir = CurrentDir(arg->wa_Lock);
@@ -118,27 +195,65 @@ static void read_tool_types(struct settings *settings) {
         return;
     }
     const STRPTR *types = (const STRPTR *)icon->do_ToolTypes;
-    UBYTE *value;
-    if ((value = FindToolType(types, (const STRPTR) "DATA")) != NULL && value[0] != '\0') {
-        snprintf(settings->data_dir, sizeof(settings->data_dir), "%s", (const char *)value);
+    const char *value;
+    path_tool_type(types, "DATA", settings->data_dir, sizeof(settings->data_dir));
+    if ((value = tool_type(types, "PORT")) != NULL) {
+        settings->sip_port = atoi(value);
     }
-    if ((value = FindToolType(types, (const STRPTR) "PORT")) != NULL) {
-        settings->sip_port = atoi((const char *)value);
+    path_tool_type(types, "RECORD", settings->record_dir, sizeof(settings->record_dir));
+    path_tool_type(types, "CAMERA", settings->camera, sizeof(settings->camera));
+    settings->verbose = tool_type(types, "VERBOSE") != NULL;
+    settings->debug = tool_type(types, "DEBUG") != NULL;
+    path_tool_type(types, "TESTVIDEO", settings->test_video, sizeof(settings->test_video));
+    path_tool_type(types, "TESTVIDEOSIZE", settings->test_video_size, sizeof(settings->test_video_size));
+    if ((value = tool_type(types, "TESTVIDEOFPS")) != NULL) {
+        settings->test_video_fps = atoi(value);
     }
-    if ((value = FindToolType(types, (const STRPTR) "RECORD")) != NULL && value[0] != '\0') {
-        snprintf(settings->record_dir, sizeof(settings->record_dir), "%s", (const char *)value);
+    path_tool_type(types, "TESTSOUND", settings->test_sound, sizeof(settings->test_sound));
+    if ((value = tool_type(types, "TESTSOUNDRATE")) != NULL) {
+        settings->test_sound_rate = atoi(value);
     }
-    if ((value = FindToolType(types, (const STRPTR) "CAMERA")) != NULL && value[0] != '\0') {
-        snprintf(settings->camera, sizeof(settings->camera), "%s", (const char *)value);
-    }
-    settings->verbose = FindToolType(types, (const STRPTR) "VERBOSE") != NULL;
-    settings->debug = FindToolType(types, (const STRPTR) "DEBUG") != NULL;
     FreeDiskObject(icon);
+}
+
+/* Sets up the sources of TESTVIDEO and TESTSOUND. Returns NULL, or what is
+   wrong, in message. */
+static const char *setup_test_files(struct settings *settings, char *message, size_t size) {
+    if (settings->test_video[0] != '\0') {
+        int width = DEFAULT_TEST_WIDTH, height = DEFAULT_TEST_HEIGHT;
+        char rest;
+        if (settings->test_video_size[0] != '\0' &&
+            sscanf(settings->test_video_size, "%dx%d%c", &width, &height, &rest) != 2) {
+            return "TESTVIDEOSIZE must be <width>x<height>, e.g. 320x240";
+        }
+        const char *error = aos_file_video_init(&test_video, settings->test_video, width, height,
+                                                (float)settings->test_video_fps);
+        if (error != NULL) {
+            snprintf(message, size, "TESTVIDEO %s: %s", settings->test_video, error);
+            return message;
+        }
+        if (settings->camera[0] == '\0') {
+            snprintf(settings->camera, sizeof(settings->camera), "%s: %s", test_video.source.driver,
+                     test_video.source.name);
+        }
+    }
+    if (settings->test_sound[0] != '\0') {
+        const char *error = aos_file_audio_init(&test_sound, settings->test_sound, settings->test_sound_rate, 1);
+        if (error != NULL) {
+            snprintf(message, size, "TESTSOUND %s: %s", settings->test_sound, error);
+            return message;
+        }
+    }
+    return NULL;
 }
 
 int main(int argc, char **argv) {
     (void)argv;
-    struct settings settings = {DEFAULT_DATA_DIR, "", "", 0, 0, 0};
+    struct settings settings = {
+        .data_dir = DEFAULT_DATA_DIR,
+        .test_video_fps = DEFAULT_TEST_FPS,
+        .test_sound_rate = DEFAULT_TEST_RATE,
+    };
     if (argc > 0) {
         if (read_arguments(&settings) != 0) {
             return 20;
@@ -152,6 +267,11 @@ int main(int argc, char **argv) {
         }
     }
 
+    char message[2 * AOS_FILE_PATH_MAX + 128];
+    const char *test_error = setup_test_files(&settings, message, sizeof(message));
+    if (test_error != NULL) {
+        return fail(test_error);
+    }
     if (aos_net_status() != 0) {
         return fail("no network: bsdsocket.library is not available");
     }
@@ -169,6 +289,9 @@ int main(int argc, char **argv) {
         .record_dir = settings.record_dir,
         .video_window = aos_gui_video_window(),
         .camera = settings.camera,
+        .extra_camera = settings.test_video[0] != '\0' ? &test_video.source : NULL,
+        .capture = settings.test_sound[0] != '\0' ? &test_sound.source : NULL,
+        .capture_without_echo = settings.test_sound[0] != '\0',
         .verbose = settings.verbose,
         .notify = aos_gui_notify,
         .context = NULL,

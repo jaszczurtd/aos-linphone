@@ -1,11 +1,10 @@
 # aos-linphone architecture
 
-[Project overview](README.md)
+[Project overview](README.md) | [Contributing](CONTRIBUTING.md)
 
 This document describes how aos-linphone is built: its layers, the
 repository layout, the compatibility layer that lets the linphone stack run
-on the system, the tests and the rules for commits. Today every part
-targets AROS x86_64.
+on the system and the tests. Today every part targets AROS x86_64.
 
 ## Layers
 
@@ -24,13 +23,40 @@ it. From the bottom up:
    mediastreamer2 and liblinphone) comes from the upstream `linphone-sdk`,
    built with a few source changes from `patches/`. See
    [sdk/README.md](sdk/README.md).
-4. The devices in `devices/` plug into mediastreamer2: an AHI sound card
-   that plays sound (it does not capture yet), a video display that hands
-   call pictures to the user interface, and the Mire test camera.
+4. The devices in `devices/` plug into mediastreamer2: an AHI sound card,
+   a camera, a video display that hands call pictures to the user
+   interface, and the Mire test camera. See
+   [Devices and sources](#devices-and-sources) below.
 5. The programs in `apps/` link all of the above statically. `aos-phone`
    runs the linphone core in its own thread and talks to its Zune windows
    through fixed-size queues; its [README](apps/aos-phone/README.md)
    describes the structure.
+
+### Devices and sources
+
+The program registers its devices with the mediastreamer2 factory of the
+linphone core, since AROS loads no mediastreamer2 plugins. The AHI card
+and the camera run threads of their own while their streams run: the card
+plays through a writer thread and captures through a reader thread, and
+the camera grabs pictures in a thread too. These threads exchange data
+with the MSTicker thread of the stream through a queue under a mutex, so
+a slow device never holds up the ticker.
+
+The camera and the microphone of the AHI card take their data from a
+source (`devices/source.h`). A source only opens itself for a stream,
+waits for the next picture or the next 20 ms of sound, and closes; the
+device does the rest. Today the sources play raw files
+(`devices/files/`), which `aos-phone` offers as test options. A real
+camera or microphone becomes another source, and the devices stay as
+they are.
+
+A source delivers whatever format it has. mediastreamer2 resamples the
+captured sound for the codec, and the camera converts each picture from
+RGB24 to YUV420P with libyuv in its own thread. The camera does that
+conversion itself because mediastreamer2 built with libyuv reads its
+RGB24 formats unlike their names: `MS_RGB24` as blue, green, red into
+full-range YUV, and `MS_RGB24_REV` as red, green, blue stored from the
+bottom row up.
 
 ## Layout
 
@@ -44,11 +70,11 @@ it. From the bottom up:
 | `deps/` | ports of the libraries the SDK needs: jsoncpp, speex, libxml2, mbedtls, libsrtp, opus, libvpx, libyuv, libjpeg-turbo |
 | `sdk/` | SDK build settings and documentation |
 | `scripts/` | `build-sdk.sh`, which builds and installs everything above |
-| `devices/` | devices for mediastreamer2: the AHI sound card, the video display and the Mire test camera |
+| `devices/` | devices for mediastreamer2: the AHI sound card, the camera, the video display, the Mire test camera, and sources that play raw files |
 | `apps/aos-register/` | SIP registration test program, see [its README](apps/aos-register/README.md) |
 | `apps/aos-phone/` | the Zune SIP client, see [its README](apps/aos-phone/README.md) |
 | `tools/` | host tools for the tests: `sip-registrar` |
-| `.githooks/` | git hooks, see [Committing changes](#committing-changes) |
+| `.githooks/` | git hooks, see [CONTRIBUTING.md](CONTRIBUTING.md) |
 
 ## Building the compatibility layer
 
@@ -191,39 +217,3 @@ Behaviour of the library:
   id of 1 or more, with a stack of about 1 MiB; `aos-register` and
   `aos-phone` do so.
 
-## Committing changes
-
-Two git hooks in `.githooks/` keep the code style and the commit messages
-consistent. Enable them once in each clone:
-
-```sh
-git config core.hooksPath .githooks
-```
-
-The code style lives in `.clang-format`: opening braces stay on the line of
-the function or statement, indentation is four spaces, and line breaks are
-left to the author.
-
-On every commit the pre-commit hook fixes the staged text files and stages
-the result. It turns CRLF line ends into LF, removes trailing spaces and
-tabs, adds a missing final newline, and replaces typographic quotes, dashes,
-arrows, ellipses and no-break spaces with ASCII. C and C++ sources then go
-through `clang-format` with that style; when `clang-format` is not
-installed, the hook skips that step. Patch
-files (`*.patch`, `*.diff`) stay as they are, because their context lines
-must match the upstream sources.
-
-The hook works on the staged version of each file, so a partly staged file
-commits only its staged part. When nothing is left to commit after these
-fixes, the commit stops with an error.
-
-The commit-msg hook accepts messages in the
-[Conventional Commits](https://www.conventionalcommits.org/) form
-`type(scope): subject`, for example
-`feat(compat): add poll() over WaitSelect`. The type is one of `feat`,
-`fix`, `docs`, `style`, `refactor`, `perf`, `test`, `build`, `ci`, `chore`
-and `revert`; the scope is optional and lower-case, and `!` after the type
-or scope marks a breaking change. The subject line takes at most 100 bytes,
-which is 100 characters of plain ASCII. Messages that git writes itself
-for merges, reverts and `fixup!`, `squash!` or `amend!` commits pass as they
-are.

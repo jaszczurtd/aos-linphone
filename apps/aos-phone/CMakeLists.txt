@@ -7,7 +7,7 @@
 #         -DCMAKE_TOOLCHAIN_FILE=<repo>/cmake/aros-x86_64.cmake \
 #         -DAROS_TOOLCHAIN_DIR=<toolchain>
 #
-# AOS_TEST_RUNNER registers test_queue with CTest, as for the tests of the
+# AOS_TEST_RUNNER registers the tests with CTest, as for the tests of the
 # compatibility layer (see tests/CMakeLists.txt in the repository root).
 
 cmake_minimum_required(VERSION 3.22)
@@ -26,8 +26,8 @@ endforeach()
 
 set(AOS_PHONE_WARNINGS -Wall -Wextra -Werror)
 
-# The device layer: the AHI sound card, the video display and the Mire test
-# camera.
+# The device layer: the AHI sound card, the video display, the cameras and
+# the file sources.
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/../../devices ${CMAKE_CURRENT_BINARY_DIR}/devices)
 
 # The core thread: the only code that calls liblinphone.
@@ -79,8 +79,16 @@ if(BUILD_TESTING)
     target_compile_options(test_video_display PRIVATE ${AOS_PHONE_WARNINGS})
     target_link_libraries(test_video_display PRIVATE aos_devices mediastreamer2)
     set_target_properties(test_video_display PROPERTIES LINKER_LANGUAGE CXX)
+    # The file sources, the camera and the capture part of the AHI card, run
+    # on an MSTicker.
+    add_executable(test_capture ../../devices/tests/test_capture.c)
+    target_include_directories(test_capture PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../../tests)
+    target_compile_options(test_capture PRIVATE ${AOS_PHONE_WARNINGS})
+    target_link_libraries(test_capture PRIVATE aos_devices mediastreamer2 pthread)
+    set_target_properties(test_capture PROPERTIES LINKER_LANGUAGE CXX)
     if(AOS_TEST_RUNNER)
         add_test(NAME test_queue COMMAND ${AOS_TEST_RUNNER} $<TARGET_FILE:test_queue>)
         add_test(NAME test_video_display COMMAND ${AOS_TEST_RUNNER} $<TARGET_FILE:test_video_display>)
+        add_test(NAME test_capture COMMAND ${AOS_TEST_RUNNER} $<TARGET_FILE:test_capture>)
     endif()
 endif()

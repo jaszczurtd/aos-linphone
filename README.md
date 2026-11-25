@@ -1,5 +1,7 @@
 # aos-linphone
 
+Author: Marcin "Jaszczur" Kielesiński.
+
 A SIP phone for AmigaOS-like systems, with voice and video calls and text chat in a native window interface. It is built on
 [liblinphone](https://gitlab.linphone.org/BC/public/linphone-sdk), the SIP
 library behind the Linphone apps on other platforms.
@@ -18,8 +20,9 @@ The project is young, but you can already make real calls. The phone,
 - records calls and plays sound files into them.
 
 It does not use a microphone or a camera yet, so the other side hears
-silence (or the sound file you play) and sees a test picture. That part
-comes next.
+silence (or the sound file you play) and sees a test picture. For tests,
+prepared sound and video files can stand in for the microphone and the
+camera. Real devices come next.
 
 ## Getting started
 
@@ -38,5 +41,6 @@ before you start the phone; see
 ## Technical details
 
 [ARCHITECTURE.md](ARCHITECTURE.md) explains how the project fits together,
-how to build and test its parts, the known limits of the system and the
-rules for commits.
+how to build and test its parts and the known limits of the system.
+[CONTRIBUTING.md](CONTRIBUTING.md) covers the git hooks, the code style and
+the form of commit messages.

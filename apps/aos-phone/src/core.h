@@ -19,6 +19,9 @@
 #ifndef AOS_PHONE_CORE_H
 #define AOS_PHONE_CORE_H
 
+struct aos_video_source;
+struct aos_audio_source;
+
 #define AOS_CORE_ADDR_MAX  256  /* bytes of a SIP address, with the NUL */
 #define AOS_CORE_TEXT_MAX  1024 /* bytes of a message or reason, with the NUL */
 #define AOS_CORE_MAX_CALLS 8    /* calls at a time; the core refuses more */
@@ -104,6 +107,16 @@ struct aos_core_config {
     /* Camera to send video from: a part of its id, e.g. "Mire" or
        "StaticImage"; NULL or "": the camera the core chose. */
     const char *camera;
+    /* Source of one more camera (devices/source.h), e.g. a file; NULL:
+       none. It must stay valid until aos_core_stop() returns. */
+    const struct aos_video_source *extra_camera;
+    /* Source of the sound the AHI card captures; NULL: the card only
+       plays and calls send silence. Valid as long as extra_camera. */
+    const struct aos_audio_source *capture;
+    /* Nonzero: the captured sound holds no echo of what the card plays,
+       as with a file, so calls run without the echo canceller, which
+       would only take time and drop samples. Not saved in linphonerc. */
+    int capture_without_echo;
     /* Nonzero: liblinphone logs messages, not only warnings and errors. */
     int verbose;
     /* Called in the core thread after each new event. */
