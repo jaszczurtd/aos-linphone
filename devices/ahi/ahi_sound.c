@@ -11,6 +11,7 @@
 #include <mediastreamer2/msfilter.h>
 #include <mediastreamer2/msqueue.h>
 #include <mediastreamer2/mssndcard.h>
+#include <mediastreamer2/msticker.h>
 
 #include <devices/ahi.h>
 #include <exec/memory.h>
@@ -19,6 +20,7 @@
 
 #include <pthread.h>
 #include <sched.h>
+#include <stdint.h>
 #include <string.h>
 #include <time.h>
 
@@ -28,11 +30,16 @@
 #define WRITER_STACK  (64 * 1024) /* bytes of stack of a writer or reader thread */
 
 struct ahi_out {
-    pthread_mutex_t lock; /* guards queue, rate, nchannels and stop */
+    pthread_mutex_t lock; /* guards queue, rate, nchannels, stop, dropped and played */
     MSBufferizer *queue;
     int rate;
     int nchannels;
     int stop;
+    size_t dropped;  /* bytes the filter dropped because the writer fell behind */
+    uint64_t played; /* sample frames ahi.device has played */
+    /* Drives the ticker by the clock of the card: see ahi_write_preprocess(). */
+    MSTickerSynchronizer *sync;
+    MSTicker *synced; /* the ticker the synchronizer is set on */
     int running;
     pthread_t thread;
     ULONG unit;
@@ -92,25 +99,67 @@ static void *writer_main(void *arg) {
         CopyMem(req[0], req[1], sizeof(struct AHIRequest));
         ms_message("AosAhiWrite: playing at %d Hz, %d channel(s)", rate, nchannels);
         struct AHIRequest *previous = NULL;
+        /* The writer takes whole blocks only and keeps one more block of
+           margin in the queue, for a ticker that comes late. Without enough
+           sound it plays silence until the queue holds a block and the
+           margin again, instead of cutting the sound into pieces. Reported
+           when the stream ends: blocks of silence at the start (filling)
+           and after the queue ran dry (gaps). */
+        unsigned long blocks = 0, filling = 0, gaps = 0;
+        /* Blocks that ended more than a quarter block late after the one
+           before: the writer came back too late, and the card ran out of
+           sound for a moment. */
+        unsigned long late = 0;
+        long longest = 0;
+        struct timespec last_done = {0, 0};
+        int refill = 1;
         for (int i = 0;; i ^= 1) {
             pthread_mutex_lock(&out->lock);
             int stop = out->stop;
             size_t got = 0;
             if (!stop) {
                 size_t avail = ms_bufferizer_get_avail(out->queue);
-                got = ms_bufferizer_read(out->queue, buffer[i], avail < block ? avail : block);
+                if (refill && avail >= 2 * block) {
+                    refill = 0;
+                }
+                if (!refill && avail >= block) {
+                    got = ms_bufferizer_read(out->queue, buffer[i], block);
+                } else if (!refill) {
+                    refill = 1; /* ran dry: a gap now, then fill up again */
+                    ++gaps;
+                }
             }
             pthread_mutex_unlock(&out->lock);
             if (stop) {
                 break;
             }
+            ++blocks;
             if (got < block) {
                 memset(buffer[i] + got, 0, block - got);
+                if (gaps == 0) {
+                    ++filling;
+                }
             }
             setup_request(req[i], buffer[i], block, rate, nchannels, previous);
             SendIO((struct IORequest *)req[i]);
             if (previous != NULL) {
                 WaitIO((struct IORequest *)previous);
+                struct timespec done;
+                clock_gettime(CLOCK_MONOTONIC, &done);
+                if (last_done.tv_sec != 0) {
+                    long ms = (long)(done.tv_sec - last_done.tv_sec) * 1000 +
+                              (done.tv_nsec - last_done.tv_nsec) / 1000000;
+                    if (ms > BLOCK_MS + BLOCK_MS / 4) {
+                        ++late;
+                    }
+                    if (ms > longest) {
+                        longest = ms;
+                    }
+                }
+                last_done = done;
+                pthread_mutex_lock(&out->lock);
+                out->played += (uint64_t)(block / (2 * (ULONG)nchannels));
+                pthread_mutex_unlock(&out->lock);
             }
             previous = req[i];
         }
@@ -118,6 +167,13 @@ static void *writer_main(void *arg) {
             AbortIO((struct IORequest *)previous);
             WaitIO((struct IORequest *)previous);
         }
+        pthread_mutex_lock(&out->lock);
+        size_t dropped = out->dropped;
+        pthread_mutex_unlock(&out->lock);
+        ms_message("AosAhiWrite: %lu blocks of %d ms, %lu silent at the start, %lu gaps, %lu ms dropped, %lu late "
+                   "(longest %ld ms)",
+                   blocks, BLOCK_MS, filling, gaps, (unsigned long)(dropped * 1000 / ((size_t)rate * 2 * (size_t)nchannels)),
+                   late, longest);
     }
 
     FreeVec(buffer[0]);
@@ -144,11 +200,13 @@ static void ahi_write_init(MSFilter *f) {
     out->rate = 8000;
     out->nchannels = 1;
     out->unit = AHI_DEFAULT_UNIT;
+    out->sync = ms_ticker_synchronizer_new();
     f->data = out;
 }
 
 static void ahi_write_uninit(MSFilter *f) {
     struct ahi_out *out = f->data;
+    ms_ticker_synchronizer_destroy(out->sync);
     ms_bufferizer_destroy(out->queue);
     pthread_mutex_destroy(&out->lock);
     ms_free(out);
@@ -171,9 +229,18 @@ static int start_sound_thread(pthread_t *thread, void *(*main)(void *), void *ar
     return running;
 }
 
+/* The ticker produces the sound on the system clock and ahi.device plays it
+   on the clock of the card. When the card runs faster, the queue empties and
+   blocks go out filled in part, which sounds broken; under load in a virtual
+   machine the AROS clock loses up to 2%. The synchronizer corrects the time
+   of the ticker by the frames the card has played, so the ticker keeps the
+   pace of the card. A ticker takes one synchronizer: the card's playback is
+   the reference, the capture filter sets none. */
 static void ahi_write_preprocess(MSFilter *f) {
     struct ahi_out *out = f->data;
     out->stop = 0;
+    out->dropped = 0;
+    out->played = 0;
     out->running = start_sound_thread(&out->thread, writer_main, out);
     if (!out->running) {
         ms_error("AosAhiWrite: cannot start the writer thread");
@@ -184,6 +251,8 @@ static void ahi_write_process(MSFilter *f) {
     struct ahi_out *out = f->data;
     mblk_t *m;
     pthread_mutex_lock(&out->lock);
+    uint64_t played = out->played;
+    int rate = out->rate;
     while ((m = ms_queue_get(f->inputs[0])) != NULL) {
         if (out->running) {
             ms_bufferizer_put(out->queue, m);
@@ -195,12 +264,25 @@ static void ahi_write_process(MSFilter *f) {
     size_t avail = ms_bufferizer_get_avail(out->queue);
     if (avail > limit) {
         ms_bufferizer_skip_bytes(out->queue, (int)(avail - limit));
+        out->dropped += avail - limit;
     }
     pthread_mutex_unlock(&out->lock);
+    if (out->running && out->synced == NULL) {
+        /* Set in the ticker thread, which reads the time function. */
+        ms_ticker_set_synchronizer(f->ticker, out->sync);
+        out->synced = f->ticker;
+    }
+    if (out->synced != NULL) {
+        ms_ticker_synchronizer_update(out->sync, played, (unsigned int)rate);
+    }
 }
 
 static void ahi_write_postprocess(MSFilter *f) {
     struct ahi_out *out = f->data;
+    if (out->synced != NULL) {
+        ms_ticker_set_synchronizer(out->synced, NULL);
+        out->synced = NULL;
+    }
     if (out->running) {
         pthread_mutex_lock(&out->lock);
         out->stop = 1;

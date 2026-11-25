@@ -52,6 +52,7 @@
 #define MUIM_Phone_ShowCall   PHONE_METHOD(10)
 #define MUIM_Phone_Rexx       PHONE_METHOD(11)
 #define MUIM_Phone_Video      PHONE_METHOD(12)
+#define MUIM_Phone_SetVideo   PHONE_METHOD(13)
 
 struct phone_msg {
     STACKED ULONG MethodID;
@@ -67,6 +68,7 @@ enum rexx_command {
     RX_HANGUP,
     RX_PLAY,
     RX_SNAPSHOT,
+    RX_VIDEO,
     RX_SEND,
     RX_STATUS,
     RX_QUIT,
@@ -113,7 +115,7 @@ static struct {
     Object *answer_button, *hangup_button;
     Object *identity_str, *password_str, *server_str;
     Object *call_peer_text, *call_state_text, *call_time_text, *mic_gauge, *speaker_gauge;
-    Object *call_answer_button, *call_hangup_button;
+    Object *call_answer_button, *call_hangup_button, *call_video_button;
 
     struct gui_call calls[AOS_CORE_MAX_CALLS];
     int rows[AOS_CORE_MAX_CALLS]; /* call id of each row of the call list */
@@ -136,6 +138,7 @@ static struct MUI_Command rexx_commands[] = {
     {"HANGUP", NULL, 0, &gui.rexx_hooks[RX_HANGUP], {0}},
     {"PLAY", "FILE/A/F", 1, &gui.rexx_hooks[RX_PLAY], {0}},
     {"SNAPSHOT", "FILE/A/F", 1, &gui.rexx_hooks[RX_SNAPSHOT], {0}},
+    {"VIDEO", "ON/S,OFF/S", 2, &gui.rexx_hooks[RX_VIDEO], {0}},
     {"SEND", "TO/A,TEXT/A/F", 2, &gui.rexx_hooks[RX_SEND], {0}},
     {"STATUS", NULL, 0, &gui.rexx_hooks[RX_STATUS], {0}},
     {"QUIT", NULL, 0, &gui.rexx_hooks[RX_QUIT], {0}},
@@ -332,6 +335,9 @@ static void show_call_window(void) {
     }
     BOOL can_answer = call->id != 0 && call->state == AOS_CALL_INCOMING;
     BOOL can_hangup = call->id != 0 && !call_final(call->state);
+    /* nnset: showing the state must not ask the core to change it. */
+    nnset(gui.call_video_button, MUIA_Selected, video ? TRUE : FALSE);
+    set(gui.call_video_button, MUIA_Disabled, call->id == 0 || call->state != AOS_CALL_CONNECTED);
     set(gui.call_answer_button, MUIA_Disabled, !can_answer);
     set(gui.answer_button, MUIA_Disabled, !can_answer);
     set(gui.call_hangup_button, MUIA_Disabled, !can_hangup);
@@ -458,6 +464,19 @@ static IPTR do_snapshot(const char *file) {
         status("the core is busy; try again");
         return FALSE;
     }
+    return TRUE;
+}
+
+/* Turns the video of the call in the call window, or else of the current
+   call, on or off. The button shows the outcome once the call reports it. */
+static IPTR do_set_video(int on) {
+    int id = gui.shown.id != 0 && gui.shown.state == AOS_CALL_CONNECTED ? gui.shown.id : 0;
+    if (aos_core_set_video(id, on) != 0) {
+        status("the core is busy; try again");
+        show_call_window();
+        return FALSE;
+    }
+    status(on ? "asking for video" : "turning video off");
     return TRUE;
 }
 
@@ -748,6 +767,7 @@ static void on_event(const struct aos_core_event *event) {
     }
     case AOS_EVENT_ERROR:
         status("%s", event->text);
+        show_call_window(); /* e.g. the Video button back to the state of the call */
         break;
     case AOS_EVENT_LOST:
         status("%d core events were lost while the interface was busy", event->id);
@@ -792,6 +812,16 @@ static IPTR do_rexx(int command, IPTR *args) {
     case RX_HANGUP: ok = do_hangup(); break;
     case RX_PLAY: ok = do_play((const char *)args[0]); break;
     case RX_SNAPSHOT: ok = do_snapshot((const char *)args[0]); break;
+    case RX_VIDEO: {
+        int on = !gui.shown.video; /* without ON or OFF: switch */
+        if (args[0] != 0) {
+            on = 1;
+        } else if (args[1] != 0) {
+            on = 0;
+        }
+        ok = do_set_video(on);
+        break;
+    }
     case RX_SEND: {
         aos_text_to_utf8((const char *)args[0], a, sizeof(a));
         aos_text_to_utf8((const char *)args[1], b, sizeof(b));
@@ -844,6 +874,7 @@ BOOPSI_DISPATCHER(IPTR, phone_dispatcher, cl, obj, msg)
     case MUIM_Phone_ShowCall: return do_show_call();
     case MUIM_Phone_Rexx: return do_rexx((int)pmsg->arg1, (IPTR *)pmsg->arg2);
     case MUIM_Phone_Video: return do_video();
+    case MUIM_Phone_SetVideo: return do_set_video((int)pmsg->arg1);
     }
     return DoSuperMethodA(cl, obj, msg);
 BOOPSI_DISPATCHER_END
@@ -949,6 +980,12 @@ static Object *create_windows(void) {
             End,
             Child, HGroup,
                 Child, gui.call_answer_button = SimpleButton("_Answer"),
+                Child, gui.call_video_button = TextObject, ButtonFrame,
+                    MUIA_Background, MUII_ButtonBack, MUIA_Font, MUIV_Font_Button,
+                    MUIA_Text_PreParse, (IPTR)"\33c", MUIA_Text_Contents, (IPTR)"_Video",
+                    MUIA_Text_HiCharIdx, '_', MUIA_ControlChar, 'v',
+                    MUIA_InputMode, MUIV_InputMode_Toggle, MUIA_Disabled, TRUE,
+                End,
                 Child, gui.call_hangup_button = SimpleButton("_Hang up"),
             End,
         End,
@@ -999,6 +1036,8 @@ static Object *create_windows(void) {
     DoMethod(gui.call_answer_button, MUIM_Notify, MUIA_Pressed, FALSE, app, 1, MUIM_Phone_Answer);
     DoMethod(gui.hangup_button, MUIM_Notify, MUIA_Pressed, FALSE, app, 1, MUIM_Phone_Hangup);
     DoMethod(gui.call_hangup_button, MUIM_Notify, MUIA_Pressed, FALSE, app, 1, MUIM_Phone_Hangup);
+    DoMethod(gui.call_video_button, MUIM_Notify, MUIA_Selected, MUIV_EveryTime, app, 2, MUIM_Phone_SetVideo,
+             MUIV_TriggerValue);
     DoMethod(gui.calls_list, MUIM_Notify, MUIA_List_Active, MUIV_EveryTime, app, 1, MUIM_Phone_ShowCall);
     DoMethod(gui.calls_view, MUIM_Notify, MUIA_Listview_DoubleClick, TRUE, gui.call_win, 3, MUIM_Set,
              MUIA_Window_Open, TRUE);
@@ -1006,7 +1045,8 @@ static Object *create_windows(void) {
              MUIA_Window_Open, FALSE);
 
     Object *cycle[] = {account_button, call_button, chat_button, gui.answer_button, gui.hangup_button,
-                       register_button, unregister_button, gui.call_answer_button, gui.call_hangup_button};
+                       register_button, unregister_button, gui.call_answer_button, gui.call_video_button,
+                       gui.call_hangup_button};
     for (size_t i = 0; i < sizeof(cycle) / sizeof(cycle[0]); ++i) {
         set(cycle[i], MUIA_CycleChain, 1);
     }

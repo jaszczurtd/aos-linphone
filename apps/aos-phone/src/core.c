@@ -10,6 +10,7 @@
 #include "video/camera.h"
 #include "video/mire_camera.h"
 #include "video/video_display.h"
+#include "vhi/vhi_camera.h"
 
 #include "aos/net.h"
 
@@ -26,16 +27,17 @@
 #include <time.h>
 #include <unistd.h>
 
-#define CORE_STACK_SIZE    (1024 * 1024)
-#define CORE_TICK_US       20000
-#define LEVELS_INTERVAL_MS 250
-#define EVENT_WAIT_MS      2000 /* longest wait for room in a full event queue */
-#define SHUTDOWN_MS        2000 /* time given to calls to end before the core stops */
-#define EVENT_CAPACITY     64
-#define COMMAND_CAPACITY   16
-#define MAX_MESSAGES       16 /* sent messages waiting for their final state */
-#define PASSWORD_MAX       128
-#define PATH_MAX_LEN       256
+#define CORE_STACK_SIZE       (1024 * 1024)
+#define CORE_TICK_US          20000
+#define LEVELS_INTERVAL_MS    250
+#define EVENT_WAIT_MS         2000 /* longest wait for room in a full event queue */
+#define SHUTDOWN_MS           2000 /* time given to calls to end before the core stops */
+#define EVENT_CAPACITY        64
+#define COMMAND_CAPACITY      16
+#define MAX_MESSAGES          16 /* sent messages waiting for their final state */
+#define PASSWORD_MAX          128
+#define PATH_MAX_LEN          256
+#define DEFAULT_DOWNLOAD_KBIT 512 /* the other side then sends VP8 at VGA size or less */
 
 enum command_type {
     CMD_REGISTER,
@@ -45,6 +47,7 @@ enum command_type {
     CMD_HANGUP,
     CMD_PLAY,
     CMD_SNAPSHOT,
+    CMD_VIDEO,
     CMD_MESSAGE,
     CMD_STOP
 };
@@ -52,6 +55,7 @@ enum command_type {
 struct command {
     enum command_type type;
     int id;
+    int flag;                        /* CMD_VIDEO: on or off */
     char address[AOS_CORE_ADDR_MAX]; /* identity, callee or message peer */
     char server[AOS_CORE_ADDR_MAX];
     char password[PASSWORD_MAX];
@@ -101,7 +105,8 @@ static struct {
     struct call_slot calls[AOS_CORE_MAX_CALLS];
     struct message_slot messages[MAX_MESSAGES];
     int next_call_id;
-    int recordings; /* recording files named so far */
+    int recordings;  /* recording files named so far */
+    int vhi_cameras; /* cameras of uvc.class found at start */
     unsigned lost;
     int stop;
 } g;
@@ -595,6 +600,33 @@ static void do_snapshot(const struct command *cmd) {
     push_event(&event);
 }
 
+static void do_set_video(const struct command *cmd) {
+    CORE_THREAD_ONLY();
+    struct call_slot *slot = NULL;
+    if (cmd->id != 0) {
+        slot = find_call_id(cmd->id);
+    } else {
+        LinphoneCall *current = linphone_core_get_current_call(g.core);
+        slot = current != NULL ? find_call(current) : NULL;
+    }
+    if (slot == NULL || linphone_call_get_state(slot->call) != LinphoneCallStateStreamsRunning) {
+        push_error("no connected call to change the video of");
+        return;
+    }
+    /* A re-INVITE with or without the video stream; the call goes through
+       Updating to StreamsRunning, whose event reports the outcome. */
+    LinphoneCallParams *params = linphone_core_create_call_params(g.core, slot->call);
+    if (params == NULL) {
+        push_error("the video of the call could not be changed");
+        return;
+    }
+    linphone_call_params_enable_video(params, cmd->flag ? TRUE : FALSE);
+    if (linphone_call_update(slot->call, params) != 0) {
+        push_error("the video of the call could not be changed");
+    }
+    linphone_call_params_unref(params);
+}
+
 /* ---- messages ---- */
 
 static int map_msg_state(LinphoneChatMessageState state) {
@@ -745,9 +777,13 @@ static void choose_ring_device(void) {
 }
 
 /* Sends video from the camera whose id contains the configured name, e.g.
-   "Mire: Mire (synthetic moving picture)" for "Mire". */
+   "Mire: Mire (synthetic moving picture)" for "Mire"; without a name, from
+   the first camera of uvc.class, when there is one. */
 static void choose_camera(void) {
     CORE_THREAD_ONLY();
+    if (g.camera[0] == '\0' && g.vhi_cameras > 0) {
+        copy_text(g.camera, sizeof(g.camera), "VHI:");
+    }
     if (g.camera[0] == '\0') {
         return;
     }
@@ -815,6 +851,15 @@ static int create_core(void) {
         return 0;
     }
     linphone_core_enable_ipv6(g.core, FALSE); /* AROSTCP cannot send to IPv4-mapped addresses */
+    /* The other side picks the size and rate of its video from the
+       bandwidth this side announces (b=AS). Without a limit a desktop client
+       sends 1280x720 at 25 pictures per second, whose decoding takes the
+       whole processor of a modest machine, sound included. linphonerc can
+       set another limit ([net] download_bw); set before the core runs, this
+       default is not saved there. */
+    if (linphone_core_get_download_bandwidth(g.core) == 0) {
+        linphone_core_set_download_bandwidth(g.core, DEFAULT_DOWNLOAD_KBIT);
+    }
     linphone_core_set_user_agent(g.core, "aos-phone", "0.1");
 
     /* The devices of the program join the factory after the core has
@@ -822,6 +867,7 @@ static int create_core(void) {
     MSFactory *ms_factory = linphone_core_get_ms_factory(g.core);
     aos_ahi_register(ms_factory, g.config.capture);
     aos_mire_register(ms_factory);
+    g.vhi_cameras = aos_vhi_cameras_register(ms_factory);
     if (g.config.extra_camera != NULL && aos_camera_register(ms_factory, g.config.extra_camera) != 0) {
         push_error("the extra camera could not be added");
     }
@@ -879,6 +925,7 @@ static void run_command(struct command *cmd) {
     case CMD_HANGUP: do_hangup(cmd->id); break;
     case CMD_PLAY: do_play(cmd); break;
     case CMD_SNAPSHOT: do_snapshot(cmd); break;
+    case CMD_VIDEO: do_set_video(cmd); break;
     case CMD_MESSAGE: do_message(cmd); break;
     case CMD_STOP: g.stop = 1; break;
     }
@@ -1065,6 +1112,15 @@ int aos_core_snapshot(int call_id, const char *file) {
     cmd.type = CMD_SNAPSHOT;
     cmd.id = call_id;
     copy_text(cmd.text, sizeof(cmd.text), file);
+    return push_command(&cmd);
+}
+
+int aos_core_set_video(int call_id, int on) {
+    struct command cmd;
+    memset(&cmd, 0, sizeof(cmd));
+    cmd.type = CMD_VIDEO;
+    cmd.id = call_id;
+    cmd.flag = on != 0;
     return push_command(&cmd);
 }
 

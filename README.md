@@ -11,18 +11,71 @@ on every Amiga system: AmigaOS, AmigaOS 4 and MorphOS.
 
 ## What works
 
-The project is young, but you can already make real calls. The phone,
-`aos-phone`:
+The project is young, but the application, `aos-phone`, already has full sound
+and video calls. It:
 
-- registers a SIP account, makes calls and answers them;
-- plays the other side's voice and ring tones, and shows their picture;
+- registers a SIP account, makes calls and answers them, or calls another
+  phone directly by its address, without a server;
+- sends your voice from the microphone and your picture from a USB camera,
+  and plays the other side's voice and shows their picture;
+- turns the video of a call on and off;
 - sends and receives text messages;
 - records calls and plays sound files into them.
 
-It does not use a microphone or a camera yet, so the other side hears
-silence (or the sound file you play) and sees a test picture. For tests,
-prepared sound and video files can stand in for the microphone and the
-camera. Real devices come next.
+Sound uses Opus, G.722, Speex or G.711, video uses VP8. For tests without
+devices, prepared sound and video files can stand in for the microphone
+and the camera.
+
+## Tested setup
+
+Sound and video calls were tested on AROS in a virtual machine:
+
+- AROS x86_64 built from the AROS `master` branch (revision `9c39558b`,
+  November 2026) and installed on the disk of the virtual machine.
+- The virtual machine: QEMU/KVM under libvirt on a Linux host, one CPU
+  core, 2 GB of memory, an Intel HD Audio card (the AROS `hdaudio.audio`
+  driver under AHI), an e1000 network card and a USB 2 controller (EHCI
+  with UHCI).
+- The camera: an A4tech HD 720P PC Camera (USB `09da:2697`) passed through
+  to the virtual machine. AROS drives it with `uvc.class`, and the phone
+  takes its pictures through the VHI library that `uvc.class` publishes
+  (`uvc0.vhi`), uncompressed (YUY2) at 640x480, about 15 pictures per
+  second in calls.
+- The microphone: the one built into that camera (USB `1b3f:2008`). AROS's
+  `usbaudio.class` makes no AHI mode for a USB device that only records,
+  so the microphone stayed on the Linux host and reached the sound input
+  of the virtual machine through the host's sound system. The phone records
+  it through AHI like any other input.
+- SIP over UDP, with the media over RTP on UDP.
+
+The other side of the test calls was:
+
+- `linphonec` (linphone-cli 5.2.0) on Linux Mint 22.3 in a second virtual
+  machine: calls with sound and video directly between the two machines
+  (sound also with SRTP encryption), and calls with sound through
+  Asterisk;
+- Linphone on an Android phone, through Asterisk: sound and VP8 video in
+  both directions, with standard echo cancelation.
+
+### Asterisk
+
+The tests used Asterisk 20 with PJSIP. The endpoints allowed G.711
+(`allow = ulaw,alaw`) for sound and VP8 (`allow = vp8`) for video.
+Asterisk does not convert video, so both phones need a video codec the
+endpoint allows, and `aos-phone` has only VP8. Opus or G.722 can be added
+for better sound where the Asterisk build supports them; that was not
+tested. The phone in the test sat behind NAT, so its endpoint also had
+`rewrite_contact = yes`, `force_rport = yes`, `rtp_symmetric = yes` and
+`direct_media = no`.
+
+### Calls without a server
+
+Calls and messages also work without a SIP server or an account: call
+`sip:<name>@<IP address>:<port>` of the other phone. Both phoneapps must
+reach each other's IP address directly, in one local network or VPN, or
+across a router that forwards the SIP and RTP ports. `aos-phone` does not
+use ICE or STUN (yet), so it does not get through NAT on its own. Start it with
+a fixed `PORT` (for example 5060) so the other side knows where to call.
 
 ## Getting started
 

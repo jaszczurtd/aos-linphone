@@ -88,7 +88,11 @@ static void *grabber_main(void *arg) {
         if (stop || rgb == NULL) {
             break;
         }
-        if (c->source->next_frame(c->handle, rgb) != 0) {
+        int got = c->source->next_frame(c->handle, rgb);
+        if (got > 0) {
+            continue; /* no picture this time: check stop and try again */
+        }
+        if (got < 0) {
             ms_error("AosCamera: %s: %s gives no more pictures", c->source->driver, c->source->name);
             break;
         }

@@ -3,18 +3,17 @@
 A SIP phone for AROS with a Zune interface, built on liblinphone. It
 registers an account, makes and answers calls with sound and video, and
 exchanges text messages. You hear the other side and the ring tone through
-AHI and see its picture in the call window. The program does not take
-sound from a microphone or pictures from a camera yet: the other side hears
-silence, or a sound file you play into the call, and sees one of the test
-pictures of mediastreamer2. For tests, prepared raw files can stand in for
-the microphone and the camera (see [Test files](#test-files)). Calls can
-also be recorded to files.
+AHI and see its picture in the call window. Your voice comes from an AHI
+input, and your picture from a USB camera that AROS's `uvc.class` drives.
+For tests, prepared raw files can stand in for the microphone and the
+camera (see [Test files](#test-files)). Calls can also be recorded to
+files.
 
 ```
 aos-phone [DATA=<directory>] [PORT=<number>] [RECORD=<directory>]
           [CAMERA=<name>] [VERBOSE]
           [TESTVIDEO=<file>] [TESTVIDEOSIZE=<width>x<height>] [TESTVIDEOFPS=<n>]
-          [TESTSOUND=<file>] [TESTSOUNDRATE=<n>]
+          [TESTSOUND=<file>] [TESTSOUNDRATE=<n>] [MICUNIT=<n>]
 ```
 
 - `DATA`: where the program keeps its settings, including the account and
@@ -28,15 +27,20 @@ aos-phone [DATA=<directory>] [PORT=<number>] [RECORD=<directory>]
   The program creates the directory when it is missing and names the files
   `call-<date>-<time>-<n>.wav`.
 - `CAMERA`: the camera video comes from, given by a part of its name:
-  `Mire` sends a moving test picture, `StaticImage` a still picture, which
-  is also the default, and `File` the pictures of `TESTVIDEO`. A name no
-  camera has keeps the default and says so in the status line.
+  `VHI` a USB camera of `uvc.class`, `Mire` a moving test picture,
+  `StaticImage` a still picture and `File` the pictures of `TESTVIDEO`.
+  Without it, calls use the `TESTVIDEO` file when there is one, else the
+  first USB camera, else the still picture. A name no camera has keeps the
+  default and says so in the status line.
 - `VERBOSE`: prints all messages of liblinphone, not only warnings and
   errors. They tell, among other things, which camera, codecs and picture
   sizes a call uses.
 - `TESTVIDEO`, `TESTVIDEOSIZE`, `TESTVIDEOFPS`: add a camera that plays a
   file of raw pictures; `TESTSOUND`, `TESTSOUNDRATE`: let the microphone
   of the AHI card play a file of raw sound. See [Test files](#test-files).
+- `MICUNIT`: the unit of `ahi.device` (0 to 3) the microphone is recorded
+  from; default 0. Its input (microphone, line) is the one set for that
+  unit in the AHI preferences.
 
 The program needs AROSTCP running and the belr grammars in
 `share/belr/grammars/` next to it, as `aos-register` does (see
@@ -44,7 +48,9 @@ The program needs AROSTCP running and the belr grammars in
 to its standard output.
 
 Sound goes to the default unit of `ahi.device`, which you choose in the AHI
-preferences. The ring tone and the tone you hear while the other side
+preferences, and the microphone is recorded from the unit `MICUNIT`, with
+echo cancellation, so a call through loudspeakers does not send the other
+side back its own voice. The ring tone and the tone you hear while the other side
 rings are files that the SDK build does not install; copy them from the
 submodule next to the program:
 
@@ -69,9 +75,9 @@ from its icon (no network, for one), it says why in a requester.
 
 ## Test files
 
-Until the program can use a real microphone and camera, two options feed
-calls from files instead, through the same devices: the camera appears
-among the others, and the AHI card gains a microphone. The files are raw,
+For tests without a microphone or a camera, two options feed calls from
+files instead, through the same devices: the camera appears among the
+others, and the AHI card records the file instead of `MICUNIT`. The files are raw,
 without a header, so their format comes with the options.
 
 `TESTVIDEO=<file>` adds the camera `File: <file name>`. The file holds
@@ -135,7 +141,16 @@ Every call offers video and accepts it when the other side offers it. The
 call window then shows the picture of the other side and, next to it, the
 picture this side sends; both keep their proportions when you resize the
 window. Video uses VP8, so the other client has to support it; a client or
-SIP server without video leaves the call with sound only.
+SIP server without video leaves the call with sound only. The program
+announces a download bandwidth of 512 kbit/s, so the other side sends
+pictures of 640x480 or smaller, small enough to decode in time; `download_bw`
+in the `[net]` section of `linphonerc` sets another limit.
+
+**Video** in the call window turns the video of a connected call on or off.
+The program asks the other side with a new offer (a re-INVITE), and the
+button follows what the call ends up with: when the other side refuses the
+picture, it pops back out. Without video, the call window shrinks to the
+sound levels and the buttons.
 
 Calls use G.711, G.722, Speex or Opus for sound, whichever both sides
 support. To encrypt the media with SRTP, add `media_encryption=srtp` to the `[sip]`
@@ -155,6 +170,7 @@ The port `AOSPHONE.1` takes these commands; they do what the buttons do:
 | `HANGUP` | declines or ends the call in the call window, or the current call |
 | `PLAY <file>` | plays a WAV file to the other side of the connected call in the call window, or of the current call |
 | `SNAPSHOT <file>` | saves the next picture received in that call as a JPEG file |
+| `VIDEO [ON\|OFF]` | turns the video of that call on or off; without an argument, switches it |
 | `SEND <address> <text>` | sends a text message and shows it in its chat window |
 | `STATUS` | returns the state, e.g. `registered\|port 5060\|call 1 connected sip:bob@example.org video` |
 | `QUIT` | ends the program |

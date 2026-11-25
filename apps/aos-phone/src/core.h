@@ -105,7 +105,8 @@ struct aos_core_config {
        devices/video/video_display.h that shows the pictures. */
     void *video_window;
     /* Camera to send video from: a part of its id, e.g. "Mire" or
-       "StaticImage"; NULL or "": the camera the core chose. */
+       "StaticImage"; NULL or "": the first camera of uvc.class (VHI), or
+       when there is none, the camera the core chose. */
     const char *camera;
     /* Source of one more camera (devices/source.h), e.g. a file; NULL:
        none. It must stay valid until aos_core_stop() returns. */
@@ -164,6 +165,12 @@ int aos_core_play(int call_id, const char *file);
    call_id 0 means the current call. file is a path in the system code
    page. */
 int aos_core_snapshot(int call_id, const char *file);
+
+/* Turns the video of a connected call on (on nonzero) or off, by updating
+   the call; call_id 0 means the current call. The other side may refuse
+   the picture; the AOS_EVENT_CALL that follows tells whether the call has
+   video. Fails (as an AOS_EVENT_ERROR) when the call is not connected. */
+int aos_core_set_video(int call_id, int on);
 
 /* Sends a text message. Returns its id (1 or more) for the
    AOS_EVENT_MESSAGE_STATE events, or -1. */

@@ -5,7 +5,7 @@
  * usage: aos-phone [DATA=<directory>] [PORT=<number>] [RECORD=<directory>]
  *                  [CAMERA=<name>] [VERBOSE]
  *                  [TESTVIDEO=<file>] [TESTVIDEOSIZE=<w>x<h>] [TESTVIDEOFPS=<n>]
- *                  [TESTSOUND=<file>] [TESTSOUNDRATE=<n>]
+ *                  [TESTSOUND=<file>] [TESTSOUNDRATE=<n>] [MICUNIT=<n>]
  *
  *   DATA  where the linphone core keeps its configuration, including the
  *         account; default PROGDIR:aos-phone-data. It must be a directory,
@@ -26,6 +26,8 @@
  *         samples in the byte order of the processor, played in a loop at
  *         TESTSOUNDRATE samples per second (default 16000), so calls send
  *         it as the sound of the microphone, without echo cancellation.
+ *   MICUNIT  the AHI unit (0-3) calls record the microphone from; default 0,
+ *         the input chosen in the AHI preferences for that unit.
  *
  * Started from its icon, the program takes the same settings from the tool
  * types of the same names. Its output then goes nowhere, unless the tool
@@ -45,6 +47,7 @@
 #include "text.h"
 
 #include "aos/net.h"
+#include "ahi/ahi_source.h"
 #include "files/file_source.h"
 
 #include <aros/startup.h>
@@ -91,13 +94,15 @@ struct settings {
     char test_video[AOS_FILE_PATH_MAX + 1]; /* "": no file camera */
     char test_video_size[32];               /* "": the default size */
     int test_video_fps;
-    char test_sound[AOS_FILE_PATH_MAX + 1]; /* "": the AHI card does not capture */
+    char test_sound[AOS_FILE_PATH_MAX + 1]; /* "": the AHI card records MICUNIT */
     int test_sound_rate;
+    int mic_unit;
 };
 
 /* The sources of the test files; the core thread uses them until it ends. */
 static struct aos_file_video test_video;
 static struct aos_file_audio test_sound;
+static struct aos_ahi_source microphone;
 
 /* Copies a setting, cut to the size of dst. */
 static void copy_setting(char *dst, size_t size, const char *value) {
@@ -107,10 +112,10 @@ static void copy_setting(char *dst, size_t size, const char *value) {
 }
 
 static int read_arguments(struct settings *settings) {
-    SIPTR args[10] = {0};
+    SIPTR args[11] = {0};
     struct RDArgs *rdargs = ReadArgs((CONST_STRPTR) "DATA/K,PORT/K/N,RECORD/K,CAMERA/K,VERBOSE/S,"
                                                     "TESTVIDEO/K,TESTVIDEOSIZE/K,TESTVIDEOFPS/K/N,"
-                                                    "TESTSOUND/K,TESTSOUNDRATE/K/N",
+                                                    "TESTSOUND/K,TESTSOUNDRATE/K/N,MICUNIT/K/N",
                                      args, NULL);
     if (rdargs == NULL) {
         PrintFault(IoErr(), (CONST_STRPTR) "aos-phone");
@@ -143,6 +148,9 @@ static int read_arguments(struct settings *settings) {
     }
     if (args[9] != 0) {
         settings->test_sound_rate = (int)*(LONG *)args[9];
+    }
+    if (args[10] != 0) {
+        settings->mic_unit = (int)*(LONG *)args[10];
     }
     FreeArgs(rdargs);
     return 0;
@@ -213,6 +221,9 @@ static void read_tool_types(struct settings *settings) {
     if ((value = tool_type(types, "TESTSOUNDRATE")) != NULL) {
         settings->test_sound_rate = atoi(value);
     }
+    if ((value = tool_type(types, "MICUNIT")) != NULL) {
+        settings->mic_unit = atoi(value);
+    }
     FreeDiskObject(icon);
 }
 
@@ -243,6 +254,10 @@ static const char *setup_test_files(struct settings *settings, char *message, si
             snprintf(message, size, "TESTSOUND %s: %s", settings->test_sound, error);
             return message;
         }
+    } else if (settings->mic_unit < 0 || settings->mic_unit > 3) {
+        return "MICUNIT must be an AHI unit from 0 to 3";
+    } else {
+        aos_ahi_source_init(&microphone, (unsigned long)settings->mic_unit);
     }
     return NULL;
 }
@@ -290,7 +305,7 @@ int main(int argc, char **argv) {
         .video_window = aos_gui_video_window(),
         .camera = settings.camera,
         .extra_camera = settings.test_video[0] != '\0' ? &test_video.source : NULL,
-        .capture = settings.test_sound[0] != '\0' ? &test_sound.source : NULL,
+        .capture = settings.test_sound[0] != '\0' ? &test_sound.source : &microphone.source,
         .capture_without_echo = settings.test_sound[0] != '\0',
         .verbose = settings.verbose,
         .notify = aos_gui_notify,

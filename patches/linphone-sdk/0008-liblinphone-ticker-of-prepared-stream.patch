@@ -1,0 +1,28 @@
+diff --git a/liblinphone/src/conference/session/audio-stream.cpp b/liblinphone/src/conference/session/audio-stream.cpp
+index 080be5191d..6deba20875 100644
+--- a/liblinphone/src/conference/session/audio-stream.cpp
++++ b/liblinphone/src/conference/session/audio-stream.cpp
+@@ -253,6 +253,9 @@ void MS2AudioStream::configureAudioStream() {
+ bool MS2AudioStream::prepare() {
+ 	if (getIceService().isActive()) {
+ 		audio_stream_prepare_sound(mStream, nullptr, nullptr);
++		// Copy the ticker it may have created into mSessions, which destroys it in finish(), even when the stream never
++		// starts.
++		media_stream_reclaim_sessions(&mStream->ms, &mSessions);
+ 	}
+ 	MS2Stream::prepare();
+ 	return false;
+diff --git a/liblinphone/src/conference/session/video-stream.cpp b/liblinphone/src/conference/session/video-stream.cpp
+index 6d436a9c1d..7645a84a05 100644
+--- a/liblinphone/src/conference/session/video-stream.cpp
++++ b/liblinphone/src/conference/session/video-stream.cpp
+@@ -263,6 +263,9 @@ bool MS2VideoStream::prepare() {
+ 	MS2Stream::prepare();
+ 	if (isTransportOwner()) {
+ 		video_stream_prepare_video(mStream);
++		// Copy the ticker it may have created into mSessions, which destroys it in finish(), even when the stream never
++		// starts.
++		media_stream_reclaim_sessions((MediaStream *)mStream, &mSessions);
+ 	}
+ 	return false;
+ }

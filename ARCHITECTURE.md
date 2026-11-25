@@ -25,7 +25,9 @@ it. From the bottom up:
    [sdk/README.md](sdk/README.md).
 4. The devices in `devices/` plug into mediastreamer2: an AHI sound card,
    a camera, a video display that hands call pictures to the user
-   interface, and the Mire test camera. See
+   interface, and the Mire test camera, with the sources the card and the
+   camera take their data from: the microphone on `ahi.device`, USB
+   cameras through VHI, and raw files. See
    [Devices and sources](#devices-and-sources) below.
 5. The programs in `apps/` link all of the above statically. `aos-phone`
    runs the linphone core in its own thread and talks to its Zune windows
@@ -45,10 +47,25 @@ a slow device never holds up the ticker.
 The camera and the microphone of the AHI card take their data from a
 source (`devices/source.h`). A source only opens itself for a stream,
 waits for the next picture or the next 20 ms of sound, and closes; the
-device does the rest. Today the sources play raw files
-(`devices/files/`), which `aos-phone` offers as test options. A real
-camera or microphone becomes another source, and the devices stay as
-they are.
+device does the rest. There are three kinds:
+
+- `devices/ahi/ahi_source.c` records a unit of `ahi.device` at 48 kHz mono.
+  A thread of its own holds the message port and the I/O request and reads
+  20 ms portions with `CMD_READ`, each continuing at the `io_Offset` of the
+  one before, so AHI records without gaps.
+- `devices/vhi/vhi_camera.c` grabs from the VHI libraries that
+  `uvc.class` publishes for USB cameras (`uvc0.vhi` and on). It picks the
+  uncompressed (YUY2) mode nearest to the size the stream asks for and
+  takes each picture as RGB24, converted by `uvc.class`. Each library
+  present at start becomes a camera `VHI: <card name> (uvc<n>)`.
+- `devices/files/` plays raw files, which `aos-phone` offers as test
+  options.
+
+The microphone and the loudspeaker run on clocks of their own, and the
+MSTicker of the stream on the system clock. The writer of the AHI card
+therefore drives the ticker from the number of samples AHI has played
+(`ms_ticker_synchronizer_update()`), so the stream neither starves the
+card nor piles up sound in front of it.
 
 A source delivers whatever format it has. mediastreamer2 resamples the
 captured sound for the codec, and the camera converts each picture from
@@ -70,7 +87,7 @@ bottom row up.
 | `deps/` | ports of the libraries the SDK needs: jsoncpp, speex, libxml2, mbedtls, libsrtp, opus, libvpx, libyuv, libjpeg-turbo |
 | `sdk/` | SDK build settings and documentation |
 | `scripts/` | `build-sdk.sh`, which builds and installs everything above |
-| `devices/` | devices for mediastreamer2: the AHI sound card, the camera, the video display, the Mire test camera, and sources that play raw files |
+| `devices/` | devices for mediastreamer2: the AHI sound card, the camera, the video display, the Mire test camera, and the sources: the AHI microphone, the VHI cameras and raw files |
 | `apps/aos-register/` | SIP registration test program, see [its README](apps/aos-register/README.md) |
 | `apps/aos-phone/` | the Zune SIP client, see [its README](apps/aos-phone/README.md) |
 | `tools/` | host tools for the tests: `sip-registrar` |
@@ -116,7 +133,9 @@ AROS network stack that the tests do not judge.
 
 The network tests need AROSTCP running with a configured interface.
 `test_net_resolve` also expects at least one DNS server from the network
-configuration.
+configuration. `test_hw_sources` records from AHI unit 0 and grabs from a
+USB camera of `uvc.class`; without such a camera it skips the camera
+part. No other program may use the devices meanwhile.
 
 ## Using the compatibility layer
 
@@ -210,6 +229,15 @@ Behaviour of the library:
   system heap gets corrupted and AROS fails after a while. Restart AROS
   between longer test series on machines with an Intel PRO/1000 adapter,
   including QEMU's `e1000` model.
+- At program exit, the pthread library waits for every thread to end. A
+  thread that never ends keeps the program alive without a window until
+  AROS restarts; on Linux, `exit()` would kill it. liblinphone left such a
+  thread behind after calls whose video never started, which
+  `patches/linphone-sdk/0008-liblinphone-ticker-of-prepared-stream.patch`
+  fixes.
+- `usbaudio.class` makes AHI modes only for USB audio devices that play.
+  A device that only records, such as the microphone of a web camera, gets
+  no mode, so AHI cannot record from it.
 - The initial task of a program has the pthread id 0, which belle-sip and
   liblinphone take to mean "no thread": belle-sip then never frees its
   pools of unowned objects, and memory grows with SIP traffic. Run the

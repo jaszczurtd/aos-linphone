@@ -35,8 +35,10 @@ struct aos_video_source {
                   struct aos_video_format *got);
     /* Waits for the next picture and copies it into rgb: got.width x
        got.height pixels of 3 bytes in the order red, green, blue, rows from
-       top to bottom without padding. Returns 0, or -1 when no picture comes
-       any more. It returns within about one picture period. */
+       top to bottom without padding. Returns 0; 1 when this attempt gave no
+       picture (e.g. a frame broken on the way) and the device should try
+       again; -1 when no picture comes any more. It returns within about one
+       picture period, or soon after a timeout of the hardware. */
     int (*next_frame)(void *handle, unsigned char *rgb);
     void (*close)(void *handle);
     void *data; /* for the source itself */
