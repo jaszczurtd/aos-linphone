@@ -158,7 +158,7 @@ program. `ilbmtoicon` is a host tool built with AROS itself; without
 The icon is made from `icons/aos-phone.png` and `icons/aos-phone.info.src`,
 which also holds its stack size and tool types. With
 `-DAOS_TEST_RUNNER=...`, as for the tests of the compatibility layer (see
-the [main README](../../README.md#running-the-tests)), CTest runs both
+[ARCHITECTURE.md](../../ARCHITECTURE.md#running-the-tests)), CTest runs both
 tests on AROS.
 
 ## Structure
