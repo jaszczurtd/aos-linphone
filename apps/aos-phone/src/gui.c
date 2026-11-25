@@ -8,10 +8,15 @@
  * Text from the core is UTF-8 and goes through text.c before Zune shows it;
  * what the user types is in the system code page and becomes UTF-8 before
  * it reaches the core.
+ *
+ * Video pictures do not travel through the core events: the display filter
+ * leaves them on a surface (video.c) and wakes the interface with a second
+ * signal, after which the video areas draw the newest picture.
  */
 #include "gui.h"
 #include "core.h"
 #include "text.h"
+#include "video.h"
 
 #include <exec/types.h>
 #include <libraries/mui.h>
@@ -46,6 +51,7 @@
 #define MUIM_Phone_SendChat   PHONE_METHOD(9)
 #define MUIM_Phone_ShowCall   PHONE_METHOD(10)
 #define MUIM_Phone_Rexx       PHONE_METHOD(11)
+#define MUIM_Phone_Video      PHONE_METHOD(12)
 
 struct phone_msg {
     STACKED ULONG MethodID;
@@ -60,6 +66,7 @@ enum rexx_command {
     RX_ANSWER,
     RX_HANGUP,
     RX_PLAY,
+    RX_SNAPSHOT,
     RX_SEND,
     RX_STATUS,
     RX_QUIT,
@@ -69,6 +76,7 @@ enum rexx_command {
 struct gui_call {
     int id; /* 0: free */
     int state;
+    int video;
     char peer[AOS_CORE_ADDR_MAX]; /* UTF-8 */
     char reason[AOS_CORE_ADDR_MAX];
     time_t connected_at;
@@ -91,7 +99,14 @@ static struct {
     BYTE signal;
     struct MUI_InputHandlerNode events_ihn;
     struct MUI_InputHandlerNode timer_ihn;
+    struct MUI_InputHandlerNode video_ihn;
+    BYTE video_signal;
     int handlers_added;
+
+    struct MUI_CustomClass *video_class;
+    struct aos_video_surface *surface;
+    Object *video_group, *remote_video, *preview_video;
+    int video_shown; /* the video group is shown */
 
     Object *main_win, *account_win, *call_win;
     Object *account_text, *address_str, *calls_view, *calls_list, *status_text;
@@ -120,6 +135,7 @@ static struct MUI_Command rexx_commands[] = {
     {"ANSWER", NULL, 0, &gui.rexx_hooks[RX_ANSWER], {0}},
     {"HANGUP", NULL, 0, &gui.rexx_hooks[RX_HANGUP], {0}},
     {"PLAY", "FILE/A/F", 1, &gui.rexx_hooks[RX_PLAY], {0}},
+    {"SNAPSHOT", "FILE/A/F", 1, &gui.rexx_hooks[RX_SNAPSHOT], {0}},
     {"SEND", "TO/A,TEXT/A/F", 2, &gui.rexx_hooks[RX_SEND], {0}},
     {"STATUS", NULL, 0, &gui.rexx_hooks[RX_STATUS], {0}},
     {"QUIT", NULL, 0, &gui.rexx_hooks[RX_QUIT], {0}},
@@ -309,6 +325,11 @@ static void show_call_window(void) {
         set(gui.mic_gauge, MUIA_Gauge_Current, 0);
         set(gui.speaker_gauge, MUIA_Gauge_Current, 0);
     }
+    int video = call->id != 0 && call->state == AOS_CALL_CONNECTED && call->video;
+    if (video != gui.video_shown && gui.video_group != NULL) {
+        gui.video_shown = video;
+        set(gui.video_group, MUIA_ShowMe, video);
+    }
     BOOL can_answer = call->id != 0 && call->state == AOS_CALL_INCOMING;
     BOOL can_hangup = call->id != 0 && !call_final(call->state);
     set(gui.call_answer_button, MUIA_Disabled, !can_answer);
@@ -359,6 +380,7 @@ static void on_call_event(const struct aos_core_event *event) {
     }
     update.id = event->id;
     update.state = event->state;
+    update.video = event->video;
     copy_text(update.peer, sizeof(update.peer), event->peer);
     copy_text(update.reason, sizeof(update.reason), event->text);
     if (event->state == AOS_CALL_CONNECTED && update.connected_at == 0) {
@@ -426,6 +448,25 @@ static IPTR do_play(const char *file) {
         return FALSE;
     }
     return TRUE;
+}
+
+/* Saves the next received picture of the call in the call window, or else
+   of the current call. */
+static IPTR do_snapshot(const char *file) {
+    int id = gui.shown.id != 0 && gui.shown.state == AOS_CALL_CONNECTED ? gui.shown.id : 0;
+    if (aos_core_snapshot(id, file) != 0) {
+        status("the core is busy; try again");
+        return FALSE;
+    }
+    return TRUE;
+}
+
+static IPTR do_video(void) {
+    if (gui.remote_video != NULL) {
+        aos_video_area_update(gui.remote_video);
+        aos_video_area_update(gui.preview_video);
+    }
+    return 0;
 }
 
 static IPTR do_show_call(void) {
@@ -654,18 +695,24 @@ static void on_event(const struct aos_core_event *event) {
         show_account();
         status("account %s: %s%s%s", event->peer, reg_name(event->state), event->text[0] ? " - " : "", event->text);
         break;
-    case AOS_EVENT_CALL:
-        printf("aos-phone: call %d %s: %s (%s)\n", event->id, call_state_name(event->state), event->peer, event->text);
+    case AOS_EVENT_CALL: {
+        const struct gui_call *before = find_call(event->id);
+        int was_connected = before != NULL && before->state == AOS_CALL_CONNECTED;
+        printf("aos-phone: call %d %s%s: %s (%s)\n", event->id, call_state_name(event->state),
+               event->video ? " with video" : "", event->peer, event->text);
         on_call_event(event);
         if (event->state == AOS_CALL_INCOMING) {
             status("incoming call from %s", event->peer);
+        } else if (event->state == AOS_CALL_CONNECTED && was_connected) {
+            status("video %s with %s", event->video ? "on" : "off", event->peer);
         } else if (event->state == AOS_CALL_CONNECTED) {
-            status("connected with %s", event->peer);
+            status("connected with %s%s", event->peer, event->video ? ", with video" : "");
         } else if (call_final(event->state)) {
             status("call with %s %s%s%s", event->peer, call_state_name(event->state), event->text[0] ? ": " : "",
                    event->text);
         }
         break;
+    }
     case AOS_EVENT_LEVELS:
         if (event->id == gui.shown.id) {
             set(gui.speaker_gauge, MUIA_Gauge_Current, level_percent(event->play_db));
@@ -691,6 +738,12 @@ static void on_event(const struct aos_core_event *event) {
         char file[AOS_CORE_TEXT_MAX];
         aos_text_to_utf8(event->text, file, sizeof(file));
         status("recording call %d to %s", event->id, file);
+        break;
+    }
+    case AOS_EVENT_SNAPSHOT: {
+        char file[AOS_CORE_TEXT_MAX];
+        aos_text_to_utf8(event->text, file, sizeof(file));
+        status("snapshot of call %d to %s", event->id, file);
         break;
     }
     case AOS_EVENT_ERROR:
@@ -738,6 +791,7 @@ static IPTR do_rexx(int command, IPTR *args) {
     case RX_ANSWER: ok = do_answer(); break;
     case RX_HANGUP: ok = do_hangup(); break;
     case RX_PLAY: ok = do_play((const char *)args[0]); break;
+    case RX_SNAPSHOT: ok = do_snapshot((const char *)args[0]); break;
     case RX_SEND: {
         aos_text_to_utf8((const char *)args[0], a, sizeof(a));
         aos_text_to_utf8((const char *)args[1], b, sizeof(b));
@@ -750,8 +804,8 @@ static IPTR do_rexx(int command, IPTR *args) {
         for (int i = 0; i < AOS_CORE_MAX_CALLS && n > 0 && (size_t)n < sizeof(result); ++i) {
             if (gui.calls[i].id != 0) {
                 aos_text_from_utf8(gui.calls[i].peer, c, sizeof(c));
-                n += snprintf(result + n, sizeof(result) - (size_t)n, "|call %d %s %s", gui.calls[i].id,
-                              call_state_name(gui.calls[i].state), c);
+                n += snprintf(result + n, sizeof(result) - (size_t)n, "|call %d %s %s%s", gui.calls[i].id,
+                              call_state_name(gui.calls[i].state), c, gui.calls[i].video ? " video" : "");
             }
         }
         break;
@@ -789,6 +843,7 @@ BOOPSI_DISPATCHER(IPTR, phone_dispatcher, cl, obj, msg)
     case MUIM_Phone_SendChat: return do_send_chat((int)pmsg->arg1);
     case MUIM_Phone_ShowCall: return do_show_call();
     case MUIM_Phone_Rexx: return do_rexx((int)pmsg->arg1, (IPTR *)pmsg->arg2);
+    case MUIM_Phone_Video: return do_video();
     }
     return DoSuperMethodA(cl, obj, msg);
 BOOPSI_DISPATCHER_END
@@ -882,6 +937,10 @@ static Object *create_windows(void) {
                     MUIA_Text_Contents, (IPTR)"",
                 End,
             End,
+            Child, gui.video_group = HGroup, MUIA_ShowMe, FALSE,
+                Child, gui.remote_video = aos_video_area_new(gui.video_class, gui.surface, AOS_VIDEO_REMOTE),
+                Child, gui.preview_video = aos_video_area_new(gui.video_class, gui.surface, AOS_VIDEO_PREVIEW),
+            End,
             Child, gui.mic_gauge = GaugeObject, GaugeFrame,
                 MUIA_Gauge_Horiz, TRUE, MUIA_Gauge_Max, 100, MUIA_Gauge_InfoText, (IPTR)"Microphone",
             End,
@@ -897,6 +956,7 @@ static Object *create_windows(void) {
     /* clang-format on */
 
     if (gui.main_win == NULL || gui.account_win == NULL || gui.call_win == NULL) {
+        gui.video_group = gui.remote_video = gui.preview_video = NULL;
         return NULL;
     }
 
@@ -920,6 +980,7 @@ static Object *create_windows(void) {
     if (app == NULL) {
         /* A Zune object that fails to come up disposes its children. */
         gui.main_win = gui.account_win = gui.call_win = NULL;
+        gui.video_group = gui.remote_video = gui.preview_video = NULL;
         return NULL;
     }
     gui.app = app;
@@ -952,14 +1013,23 @@ static Object *create_windows(void) {
     return app;
 }
 
+static void video_notify(void *context) {
+    (void)context;
+    Signal(gui.task, 1UL << gui.video_signal);
+}
+
 int aos_gui_create(void) {
     gui.task = FindTask(NULL);
     gui.signal = AllocSignal(-1);
-    if (gui.signal < 0) {
+    gui.video_signal = AllocSignal(-1);
+    if (gui.signal < 0 || gui.video_signal < 0) {
+        aos_gui_dispose();
         return -1;
     }
     gui.phone_class = MUI_CreateCustomClass(NULL, (ClassID)MUIC_Application, NULL, sizeof(IPTR), phone_dispatcher);
-    if (gui.phone_class == NULL || create_windows() == NULL) {
+    gui.video_class = aos_video_class_create();
+    gui.surface = aos_video_surface_create(video_notify, NULL);
+    if (gui.phone_class == NULL || gui.video_class == NULL || gui.surface == NULL || create_windows() == NULL) {
         aos_gui_dispose();
         return -1;
     }
@@ -972,8 +1042,13 @@ int aos_gui_create(void) {
     gui.timer_ihn.ihn_Millis = 1000;
     gui.timer_ihn.ihn_Flags = MUIIHNF_TIMER;
     gui.timer_ihn.ihn_Method = MUIM_Phone_Tick;
+    gui.video_ihn.ihn_Object = gui.app;
+    gui.video_ihn.ihn_Signals = 1UL << gui.video_signal;
+    gui.video_ihn.ihn_Flags = 0;
+    gui.video_ihn.ihn_Method = MUIM_Phone_Video;
     DoMethod(gui.app, MUIM_Application_AddInputHandler, (IPTR)&gui.events_ihn);
     DoMethod(gui.app, MUIM_Application_AddInputHandler, (IPTR)&gui.timer_ihn);
+    DoMethod(gui.app, MUIM_Application_AddInputHandler, (IPTR)&gui.video_ihn);
     gui.handlers_added = 1;
 
     show_call_window();
@@ -997,6 +1072,7 @@ void aos_gui_run(void) {
 void aos_gui_dispose(void) {
     if (gui.app != NULL) {
         if (gui.handlers_added) {
+            DoMethod(gui.app, MUIM_Application_RemInputHandler, (IPTR)&gui.video_ihn);
             DoMethod(gui.app, MUIM_Application_RemInputHandler, (IPTR)&gui.timer_ihn);
             DoMethod(gui.app, MUIM_Application_RemInputHandler, (IPTR)&gui.events_ihn);
             gui.handlers_added = 0;
@@ -1016,14 +1092,28 @@ void aos_gui_dispose(void) {
         }
     }
     gui.main_win = gui.account_win = gui.call_win = NULL;
+    gui.video_group = gui.remote_video = gui.preview_video = NULL;
     if (gui.phone_class != NULL) {
         MUI_DeleteCustomClass(gui.phone_class);
         gui.phone_class = NULL;
+    }
+    /* The objects of the class are gone with the windows. */
+    aos_video_class_delete(gui.video_class);
+    gui.video_class = NULL;
+    aos_video_surface_destroy(gui.surface);
+    gui.surface = NULL;
+    if (gui.video_signal >= 0) {
+        FreeSignal(gui.video_signal);
+        gui.video_signal = -1;
     }
     if (gui.signal >= 0) {
         FreeSignal(gui.signal);
         gui.signal = -1;
     }
+}
+
+void *aos_gui_video_window(void) {
+    return gui.surface;
 }
 
 void aos_gui_notify(void *context) {

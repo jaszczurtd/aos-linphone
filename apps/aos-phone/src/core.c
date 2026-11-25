@@ -7,6 +7,8 @@
 #include "queue.h"
 
 #include "ahi/ahi_sound.h"
+#include "video/mire_camera.h"
+#include "video/video_display.h"
 
 #include "aos/net.h"
 
@@ -18,6 +20,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <sys/stat.h>
 #include <time.h>
 #include <unistd.h>
@@ -40,6 +43,7 @@ enum command_type {
     CMD_ANSWER,
     CMD_HANGUP,
     CMD_PLAY,
+    CMD_SNAPSHOT,
     CMD_MESSAGE,
     CMD_STOP
 };
@@ -50,13 +54,14 @@ struct command {
     char address[AOS_CORE_ADDR_MAX]; /* identity, callee or message peer */
     char server[AOS_CORE_ADDR_MAX];
     char password[PASSWORD_MAX];
-    char text[AOS_CORE_TEXT_MAX]; /* message, or file to play */
+    char text[AOS_CORE_TEXT_MAX]; /* message, file to play or snapshot file */
 };
 
 struct call_slot {
     int id; /* 0: free */
     int state;
     LinphoneCall *call;
+    int video;       /* video ran when the streams last started; 0 when not connected */
     int runs;        /* times the call entered StreamsRunning */
     int player_runs; /* runs when the call player was first taken; 0: never */
 };
@@ -86,6 +91,7 @@ static struct {
     char data_dir[PATH_MAX_LEN];
     char resources_dir[PATH_MAX_LEN];
     char record_dir[PATH_MAX_LEN];
+    char camera[AOS_CORE_ADDR_MAX];
 
     /* Core thread only. */
     pthread_t self;
@@ -339,13 +345,23 @@ static void on_call_state(LinphoneCore *core, LinphoneCall *call, LinphoneCallSt
     }
 
     int reported = map_call_state(state);
-    if (reported >= 0 && reported != slot->state) {
+    /* Video can come and go each time the streams start again, and runs
+       only while the call is connected. */
+    int video = slot->video;
+    if (state == LinphoneCallStateStreamsRunning) {
+        video = linphone_call_params_video_enabled(linphone_call_get_current_params(call)) != 0;
+    } else if (reported != AOS_CALL_CONNECTED) {
+        video = 0;
+    }
+    if (reported >= 0 && (reported != slot->state || video != slot->video)) {
         /* End and Error are final for the interface; Released follows. */
         slot->state = reported;
+        slot->video = video;
         struct aos_core_event event;
         event_init(&event, AOS_EVENT_CALL);
         event.id = slot->id;
         event.state = reported;
+        event.video = video;
         copy_address(event.peer, sizeof(event.peer), linphone_call_get_remote_address(call));
         copy_text(event.text, sizeof(event.text), message);
         push_event(&event);
@@ -553,6 +569,31 @@ static void do_play(const struct command *cmd) {
     }
 }
 
+static void do_snapshot(const struct command *cmd) {
+    CORE_THREAD_ONLY();
+    struct call_slot *slot = NULL;
+    if (cmd->id != 0) {
+        slot = find_call_id(cmd->id);
+    } else {
+        LinphoneCall *current = linphone_core_get_current_call(g.core);
+        slot = current != NULL ? find_call(current) : NULL;
+    }
+    if (slot == NULL || !slot->video) {
+        push_error("no call with video to take a snapshot of");
+        return;
+    }
+    /* The picture is written by the video stream, after this returns. */
+    if (linphone_call_take_video_snapshot(slot->call, cmd->text) != 0) {
+        push_error("the snapshot could not be taken");
+        return;
+    }
+    struct aos_core_event event;
+    event_init(&event, AOS_EVENT_SNAPSHOT);
+    event.id = slot->id;
+    copy_text(event.text, sizeof(event.text), cmd->text);
+    push_event(&event);
+}
+
 /* ---- messages ---- */
 
 static int map_msg_state(LinphoneChatMessageState state) {
@@ -701,10 +742,55 @@ static void choose_ring_device(void) {
     bctbx_list_free_with_data(devices, (bctbx_list_free_func)linphone_audio_device_unref);
 }
 
+/* Sends video from the camera whose id contains the configured name, e.g.
+   "Mire: Mire (synthetic moving picture)" for "Mire". */
+static void choose_camera(void) {
+    CORE_THREAD_ONLY();
+    if (g.camera[0] == '\0') {
+        return;
+    }
+    bctbx_list_t *cameras = linphone_core_get_video_devices_list(g.core);
+    const char *found = NULL;
+    for (const bctbx_list_t *it = cameras; it != NULL && found == NULL; it = bctbx_list_next(it)) {
+        const char *id = bctbx_list_get_data(it);
+        size_t len = strlen(g.camera);
+        for (const char *p = id; *p != '\0' && found == NULL; ++p) {
+            if (strncasecmp(p, g.camera, len) == 0) {
+                found = id;
+            }
+        }
+    }
+    if (found == NULL || linphone_core_set_video_device(g.core, found) != 0) {
+        char text[AOS_CORE_ADDR_MAX + 32];
+        snprintf(text, sizeof(text), "no camera %s; video comes from %s", g.camera,
+                 linphone_core_get_video_device(g.core) != NULL ? linphone_core_get_video_device(g.core) : "none");
+        push_error(text);
+    }
+    bctbx_list_free_with_data(cameras, bctbx_free);
+}
+
+/* Video in both directions, shown by the AROS display filter on the surface
+   of the interface, and offered and accepted in every call. */
+static void setup_video(void) {
+    CORE_THREAD_ONLY();
+    linphone_core_set_video_display_filter(g.core, AOS_VIDEO_DISPLAY_NAME);
+    void *window = g.config.video_window != NULL ? g.config.video_window : LINPHONE_VIDEO_DISPLAY_NONE;
+    linphone_core_set_native_video_window_id(g.core, window);
+    linphone_core_enable_video_capture(g.core, TRUE);
+    linphone_core_enable_video_display(g.core, TRUE);
+    LinphoneVideoActivationPolicy *policy = linphone_factory_create_video_activation_policy(g.factory);
+    linphone_video_activation_policy_set_automatically_initiate(policy, TRUE);
+    linphone_video_activation_policy_set_automatically_accept(policy, TRUE);
+    linphone_core_set_video_activation_policy(g.core, policy);
+    linphone_video_activation_policy_unref(policy);
+    choose_camera();
+}
+
 static int create_core(void) {
     CORE_THREAD_ONLY();
     g.factory = linphone_factory_get();
-    linphone_logging_service_set_log_level(linphone_logging_service_get(), LinphoneLogLevelWarning);
+    linphone_logging_service_set_log_level(linphone_logging_service_get(),
+                                           g.config.verbose ? LinphoneLogLevelMessage : LinphoneLogLevelWarning);
     linphone_factory_set_top_resources_dir(g.factory, g.resources_dir);
     mkdir(g.data_dir, 0755);
     linphone_factory_set_data_dir(g.factory, g.data_dir);
@@ -729,9 +815,16 @@ static int create_core(void) {
     linphone_core_enable_ipv6(g.core, FALSE); /* AROSTCP cannot send to IPv4-mapped addresses */
     linphone_core_set_user_agent(g.core, "aos-phone", "0.1");
 
-    aos_ahi_register(linphone_core_get_ms_factory(g.core));
+    /* The devices of the program join the factory after the core has
+       chosen its devices; see choose_ring_device() and choose_camera(). */
+    MSFactory *ms_factory = linphone_core_get_ms_factory(g.core);
+    aos_ahi_register(ms_factory);
+    aos_mire_register(ms_factory);
+    aos_video_display_register(ms_factory);
     linphone_core_reload_sound_devices(g.core);
+    linphone_core_reload_video_devices(g.core);
     choose_ring_device();
+    setup_video();
 
     /* SIP over UDP only, on the configured port or a random one. */
     LinphoneTransports *transports = linphone_factory_create_transports(g.factory);
@@ -775,6 +868,7 @@ static void run_command(struct command *cmd) {
     case CMD_ANSWER: do_answer(cmd->id); break;
     case CMD_HANGUP: do_hangup(cmd->id); break;
     case CMD_PLAY: do_play(cmd); break;
+    case CMD_SNAPSHOT: do_snapshot(cmd); break;
     case CMD_MESSAGE: do_message(cmd); break;
     case CMD_STOP: g.stop = 1; break;
     }
@@ -850,6 +944,7 @@ int aos_core_start(const struct aos_core_config *config) {
     copy_text(g.data_dir, sizeof(g.data_dir), config->data_dir);
     copy_text(g.resources_dir, sizeof(g.resources_dir), config->resources_dir);
     copy_text(g.record_dir, sizeof(g.record_dir), config->record_dir);
+    copy_text(g.camera, sizeof(g.camera), config->camera);
     g.finished = 0;
     g.stop = 0;
     if (aos_queue_init(&g.commands, g.command_storage, sizeof(struct command), COMMAND_CAPACITY) != 0) {
@@ -949,6 +1044,15 @@ int aos_core_play(int call_id, const char *file) {
     struct command cmd;
     memset(&cmd, 0, sizeof(cmd));
     cmd.type = CMD_PLAY;
+    cmd.id = call_id;
+    copy_text(cmd.text, sizeof(cmd.text), file);
+    return push_command(&cmd);
+}
+
+int aos_core_snapshot(int call_id, const char *file) {
+    struct command cmd;
+    memset(&cmd, 0, sizeof(cmd));
+    cmd.type = CMD_SNAPSHOT;
     cmd.id = call_id;
     copy_text(cmd.text, sizeof(cmd.text), file);
     return push_command(&cmd);

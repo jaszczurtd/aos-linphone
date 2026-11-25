@@ -26,7 +26,8 @@ endforeach()
 
 set(AOS_PHONE_WARNINGS -Wall -Wextra -Werror)
 
-# The device layer: the AHI sound card.
+# The device layer: the AHI sound card, the video display and the Mire test
+# camera.
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/../../devices ${CMAKE_CURRENT_BINARY_DIR}/devices)
 
 # The core thread: the only code that calls liblinphone.
@@ -34,9 +35,9 @@ add_library(aos_phone_core STATIC src/core.c src/queue.c)
 target_compile_options(aos_phone_core PRIVATE ${AOS_PHONE_WARNINGS})
 target_link_libraries(aos_phone_core PRIVATE liblinphone aos_devices)
 
-add_executable(aos-phone src/main.c src/gui.c src/text.c)
+add_executable(aos-phone src/main.c src/gui.c src/text.c src/video.c)
 target_compile_options(aos-phone PRIVATE ${AOS_PHONE_WARNINGS})
-target_link_libraries(aos-phone PRIVATE aos_phone_core mui icon)
+target_link_libraries(aos-phone PRIVATE aos_phone_core aos_devices mui icon cybergraphics)
 # liblinphone is C++: link with g++ so that libstdc++ comes along.
 set_target_properties(aos-phone PROPERTIES LINKER_LANGUAGE CXX)
 
@@ -71,7 +72,15 @@ if(BUILD_TESTING)
     target_include_directories(test_queue PRIVATE src ${CMAKE_CURRENT_SOURCE_DIR}/../../tests)
     target_compile_options(test_queue PRIVATE ${AOS_PHONE_WARNINGS})
     target_link_libraries(test_queue PRIVATE pthread)
+    # The video display of the device layer, with the filter from a
+    # mediastreamer2 factory.
+    add_executable(test_video_display ../../devices/tests/test_video_display.c)
+    target_include_directories(test_video_display PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../../tests)
+    target_compile_options(test_video_display PRIVATE ${AOS_PHONE_WARNINGS})
+    target_link_libraries(test_video_display PRIVATE aos_devices mediastreamer2)
+    set_target_properties(test_video_display PROPERTIES LINKER_LANGUAGE CXX)
     if(AOS_TEST_RUNNER)
         add_test(NAME test_queue COMMAND ${AOS_TEST_RUNNER} $<TARGET_FILE:test_queue>)
+        add_test(NAME test_video_display COMMAND ${AOS_TEST_RUNNER} $<TARGET_FILE:test_video_display>)
     endif()
 endif()

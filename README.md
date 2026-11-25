@@ -12,12 +12,14 @@ The work is at an early stage. What exists today:
 - the build of the linphone SDK for AROS on top of it, see
   [sdk/README.md](sdk/README.md);
 - `aos-register`, a console program that registers a SIP account from AROS;
-- `aos-phone`, the Zune client: account registration, calls and text chat,
-  see [its README](apps/aos-phone/README.md). It plays the sound of calls
-  and the ring tone through AHI, plays sound files into calls and records
-  calls, but does not take sound from a microphone yet.
+- `aos-phone`, the Zune client: account registration, calls with sound and
+  video, and text chat, see [its README](apps/aos-phone/README.md). It
+  plays the sound of calls and the ring tone through AHI, shows the picture
+  of the other side, plays sound files into calls and records calls. It
+  sends the test pictures of mediastreamer2 and does not take sound from a
+  microphone yet.
 
-The microphone and video come next.
+The microphone and the camera come next.
 
 ## Layout
 
@@ -28,10 +30,10 @@ The microphone and video come next.
 | `cmake/` | CMake toolchain file and platform description for AROS x86_64 |
 | `third_party/linphone-sdk` | upstream linphone-sdk, pinned as a submodule |
 | `patches/` | source changes applied to the submodule, see [patches/README.md](patches/README.md) |
-| `deps/` | ports of the libraries the SDK needs: jsoncpp, speex, libxml2, mbedtls, libsrtp, opus |
+| `deps/` | ports of the libraries the SDK needs: jsoncpp, speex, libxml2, mbedtls, libsrtp, opus, libvpx, libyuv, libjpeg-turbo |
 | `sdk/` | SDK build settings and documentation |
 | `scripts/` | `build-sdk.sh`, which builds and installs everything above |
-| `devices/` | devices for mediastreamer2: the AHI sound card |
+| `devices/` | devices for mediastreamer2: the AHI sound card, the video display and the Mire test camera |
 | `apps/aos-register/` | SIP registration test program, see [its README](apps/aos-register/README.md) |
 | `apps/aos-phone/` | the Zune SIP client, see [its README](apps/aos-phone/README.md) |
 | `tools/` | host tools for the tests: `sip-registrar` |

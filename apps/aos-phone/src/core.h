@@ -56,7 +56,9 @@ enum aos_event_type {
     AOS_EVENT_START_FAILED,
     /* Registration state of the account. peer: identity, text: reason. */
     AOS_EVENT_ACCOUNT,
-    /* Call state. id, state, peer: the other party, text: reason. */
+    /* Call state, or video starting or stopping in a connected call. id,
+       state, peer: the other party, text: reason, video: the call is
+       connected and has video (known once the media streams run). */
     AOS_EVENT_CALL,
     /* Sound levels of a connected call in dBm0, about four times a
        second. id, play_db (received), record_db (sent). */
@@ -69,6 +71,9 @@ enum aos_event_type {
     /* A connected call is being recorded. id, text: the file, in the
        system code page. */
     AOS_EVENT_RECORDING,
+    /* A snapshot of the received video was requested. id: the call, text:
+       the JPEG file, in the system code page. */
+    AOS_EVENT_SNAPSHOT,
     /* A request could not be carried out. text: what failed. */
     AOS_EVENT_ERROR,
     /* id events were dropped because the event queue stayed full. */
@@ -79,6 +84,7 @@ struct aos_core_event {
     enum aos_event_type type;
     int id;
     int state;
+    int video;
     float play_db;
     float record_db;
     char peer[AOS_CORE_ADDR_MAX];
@@ -92,6 +98,14 @@ struct aos_core_config {
     /* Directory where each call is recorded to a WAV file, both sides
        mixed; NULL or "": no recording. */
     const char *record_dir;
+    /* Native window id for the video display: the surface of
+       devices/video/video_display.h that shows the pictures. */
+    void *video_window;
+    /* Camera to send video from: a part of its id, e.g. "Mire" or
+       "StaticImage"; NULL or "": the camera the core chose. */
+    const char *camera;
+    /* Nonzero: liblinphone logs messages, not only warnings and errors. */
+    int verbose;
     /* Called in the core thread after each new event. */
     void (*notify)(void *context);
     void *context;
@@ -132,6 +146,11 @@ int aos_core_hangup(int call_id);
    after a pause, because liblinphone keeps a player for the first sound
    stream of the call only. */
 int aos_core_play(int call_id, const char *file);
+
+/* Saves the next picture received in a call with video to a JPEG file;
+   call_id 0 means the current call. file is a path in the system code
+   page. */
+int aos_core_snapshot(int call_id, const char *file);
 
 /* Sends a text message. Returns its id (1 or more) for the
    AOS_EVENT_MESSAGE_STATE events, or -1. */

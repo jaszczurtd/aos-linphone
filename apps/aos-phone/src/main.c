@@ -3,6 +3,7 @@
  * liblinphone.
  *
  * usage: aos-phone [DATA=<directory>] [PORT=<number>] [RECORD=<directory>]
+ *                  [CAMERA=<name>] [VERBOSE]
  *
  *   DATA  where the linphone core keeps its configuration, including the
  *         account; default PROGDIR:aos-phone-data. It must be a directory,
@@ -11,13 +12,18 @@
  *         when others call this computer by its IP address.
  *   RECORD  records every call to a WAV file in this directory, both sides
  *         mixed; default no recording.
+ *   CAMERA  sends video from the camera whose id contains this name, e.g.
+ *         Mire (a moving test picture) or StaticImage; default the camera the
+ *         linphone core chose.
+ *   VERBOSE  prints all liblinphone messages, not only warnings and errors.
  *
  * Started from its icon, the program takes the same settings from the tool
- * types DATA, PORT and RECORD. Its output then goes nowhere, unless the tool
- * type DEBUG asks for a console window.
+ * types DATA, PORT, RECORD, CAMERA and VERBOSE. Its output then goes nowhere,
+ * unless the tool type DEBUG asks for a console window.
  *
  * The SIP parsers read their grammars from PROGDIR:share/belr/grammars,
- * and the ring tones come from PROGDIR:share/sounds/linphone.
+ * the ring tones come from PROGDIR:share/sounds/linphone, and the picture of
+ * the StaticImage camera from PROGDIR:share/images.
  * The program prints what happens to its standard output and offers the
  * ARexx port AOSPHONE.1; see README.md.
  *
@@ -58,13 +64,15 @@ char const __stdiowin[] = "CON:0/30/640/240/aos-phone debug output/AUTO/CLOSE/WA
 struct settings {
     char data_dir[256];
     char record_dir[256]; /* "": calls are not recorded */
+    char camera[256];     /* "": the camera the core chose */
     int sip_port;
+    int verbose;
     int debug;
 };
 
 static int read_arguments(struct settings *settings) {
-    SIPTR args[3] = {0, 0, 0};
-    struct RDArgs *rdargs = ReadArgs((CONST_STRPTR) "DATA/K,PORT/K/N,RECORD/K", args, NULL);
+    SIPTR args[5] = {0, 0, 0, 0, 0};
+    struct RDArgs *rdargs = ReadArgs((CONST_STRPTR) "DATA/K,PORT/K/N,RECORD/K,CAMERA/K,VERBOSE/S", args, NULL);
     if (rdargs == NULL) {
         PrintFault(IoErr(), (CONST_STRPTR) "aos-phone");
         return -1;
@@ -78,6 +86,10 @@ static int read_arguments(struct settings *settings) {
     if (args[2] != 0) {
         snprintf(settings->record_dir, sizeof(settings->record_dir), "%s", (const char *)args[2]);
     }
+    if (args[3] != 0) {
+        snprintf(settings->camera, sizeof(settings->camera), "%s", (const char *)args[3]);
+    }
+    settings->verbose = args[4] != 0;
     FreeArgs(rdargs);
     return 0;
 }
@@ -95,8 +107,8 @@ static int fail(const char *message) {
     return 20;
 }
 
-/* Takes DATA, PORT, RECORD and DEBUG from the icon the program was started
-   from. */
+/* Takes DATA, PORT, RECORD, CAMERA, VERBOSE and DEBUG from the icon the
+   program was started from. */
 static void read_tool_types(struct settings *settings) {
     struct WBArg *arg = &WBenchMsg->sm_ArgList[0];
     BPTR old_dir = CurrentDir(arg->wa_Lock);
@@ -116,13 +128,17 @@ static void read_tool_types(struct settings *settings) {
     if ((value = FindToolType(types, (const STRPTR) "RECORD")) != NULL && value[0] != '\0') {
         snprintf(settings->record_dir, sizeof(settings->record_dir), "%s", (const char *)value);
     }
+    if ((value = FindToolType(types, (const STRPTR) "CAMERA")) != NULL && value[0] != '\0') {
+        snprintf(settings->camera, sizeof(settings->camera), "%s", (const char *)value);
+    }
+    settings->verbose = FindToolType(types, (const STRPTR) "VERBOSE") != NULL;
     settings->debug = FindToolType(types, (const STRPTR) "DEBUG") != NULL;
     FreeDiskObject(icon);
 }
 
 int main(int argc, char **argv) {
     (void)argv;
-    struct settings settings = {DEFAULT_DATA_DIR, "", 0, 0};
+    struct settings settings = {DEFAULT_DATA_DIR, "", "", 0, 0, 0};
     if (argc > 0) {
         if (read_arguments(&settings) != 0) {
             return 20;
@@ -146,8 +162,17 @@ int main(int argc, char **argv) {
         aos_text_cleanup();
         return fail("cannot create the interface");
     }
-    struct aos_core_config config = {settings.data_dir, RESOURCES_DIR, settings.sip_port, settings.record_dir,
-                                     aos_gui_notify, NULL};
+    struct aos_core_config config = {
+        .data_dir = settings.data_dir,
+        .resources_dir = RESOURCES_DIR,
+        .sip_port = settings.sip_port,
+        .record_dir = settings.record_dir,
+        .video_window = aos_gui_video_window(),
+        .camera = settings.camera,
+        .verbose = settings.verbose,
+        .notify = aos_gui_notify,
+        .context = NULL,
+    };
     if (aos_core_start(&config) != 0) {
         aos_gui_dispose();
         aos_text_cleanup();

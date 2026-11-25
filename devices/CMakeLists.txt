@@ -1,11 +1,16 @@
-# The device layer of aos-linphone: sound devices for mediastreamer2 on
-# AROS (later also the camera and the video display). It does not use the
-# compatibility layer. A program adds this directory after it has found the
-# Mediastreamer2 package of the installed SDK:
+# The device layer of aos-linphone: devices for mediastreamer2 on AROS. It
+# has the AHI sound card, the video display that hands pictures to the user
+# interface, and the always-listed Mire test camera (later also the camera).
+# It does not use the compatibility layer. A program adds this directory
+# after it has found the Mediastreamer2 package of the installed SDK, which
+# also defines the libyuv target:
 #
 #   add_subdirectory(<repo>/devices ${CMAKE_CURRENT_BINARY_DIR}/devices)
 
-add_library(aos_devices STATIC ahi/ahi_sound.c)
+add_library(aos_devices STATIC
+    ahi/ahi_sound.c
+    video/video_display.c
+    video/mire_camera.c)
 target_include_directories(aos_devices PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_compile_options(aos_devices PRIVATE -Wall -Wextra -Werror)
-target_link_libraries(aos_devices PRIVATE mediastreamer2)
+target_link_libraries(aos_devices PRIVATE mediastreamer2 yuv)

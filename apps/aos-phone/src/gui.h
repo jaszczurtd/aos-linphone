@@ -21,4 +21,8 @@ void aos_gui_dispose(void);
    task, which then takes the new core events. */
 void aos_gui_notify(void *context);
 
+/* The video surface the call window shows, for the video_window of struct
+   aos_core_config. It stays valid until aos_gui_dispose(). */
+void *aos_gui_video_window(void);
+
 #endif

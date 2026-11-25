@@ -1,7 +1,9 @@
 # Ports of the third-party libraries the linphone stack needs on AROS and
 # that the AROS SDK does not provide in a usable form: jsoncpp,
 # speex/speexdsp, libxml2, mbedtls, libsrtp (SRTP media encryption, with
-# mbedtls as its crypto engine) and opus. zlib comes from the AROS SDK. The
+# mbedtls as its crypto engine), opus, and for video libvpx (VP8), libyuv
+# (pixel format conversion and scaling) and libjpeg-turbo (the static
+# picture camera and JPEG snapshots). zlib comes from the AROS SDK. The
 # SDK's mbedtls is a minimal TLS client without threads and lacks a third of
 # the functions bctoolbox uses, so mbedtls is built from linphone-sdk's
 # submodule with its own configuration plus deps/mbedtls/aros_user_config.h.
@@ -9,10 +11,15 @@
 # The sources are the submodules pinned by linphone-sdk (external/), built
 # as separate static libraries with the AROS toolchain and installed into
 # CMAKE_INSTALL_PREFIX, where the SDK build then finds them (it runs with
-# BUILD_JSONCPP, BUILD_SPEEX, BUILD_LIBXML2, BUILD_MBEDTLS, BUILD_LIBSRTP2 and
-# BUILD_OPUS off). Each library gets the options the SDK itself would give it. mbedtls
-# and libsrtp also take headers from the compatibility layer, so install that
-# into the same prefix first.
+# BUILD_JSONCPP, BUILD_SPEEX, BUILD_LIBXML2, BUILD_MBEDTLS, BUILD_LIBSRTP2,
+# BUILD_OPUS, BUILD_LIBVPX, BUILD_LIBYUV and BUILD_LIBJPEGTURBO off). Each
+# library gets the options the SDK itself would give it, without
+# position-independent code (see cmake/Platform/AROS-GNU-C.cmake). mbedtls,
+# libsrtp and libjpeg-turbo also take headers from the compatibility layer,
+# so install that into the same prefix first.
+#
+# libvpx and libjpeg-turbo contain x86_64 assembly: yasm and nasm must be
+# installed on the build host.
 #
 #   cmake -S deps -B build-deps -DCMAKE_TOOLCHAIN_FILE=<repo>/cmake/aros-x86_64.cmake \
 #         -DAROS_TOOLCHAIN_DIR=<toolchain> -DCMAKE_INSTALL_PREFIX=<prefix>
@@ -28,8 +35,10 @@ set(AOS_SDK_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../third_party/linphone-sdk"
     CACHE PATH "linphone-sdk source tree whose external/ submodules are built")
 get_filename_component(AOS_SDK_SOURCE_DIR "${AOS_SDK_SOURCE_DIR}" ABSOLUTE)
 
-foreach(lib jsoncpp speex libxml2 mbedtls srtp opus)
-    if(NOT EXISTS "${AOS_SDK_SOURCE_DIR}/external/${lib}/CMakeLists.txt")
+foreach(lib jsoncpp speex libxml2 mbedtls srtp opus libvpx libyuv libjpeg-turbo)
+    # libvpx has a configure script instead of CMake.
+    if(NOT EXISTS "${AOS_SDK_SOURCE_DIR}/external/${lib}/CMakeLists.txt" AND
+       NOT EXISTS "${AOS_SDK_SOURCE_DIR}/external/${lib}/configure")
         message(FATAL_ERROR "${AOS_SDK_SOURCE_DIR}/external/${lib} is not checked out; "
             "run: git -C ${AOS_SDK_SOURCE_DIR} submodule update --init external/${lib}")
     endif()
@@ -99,3 +108,65 @@ ExternalProject_Add(opus
         -DOPUS_STACK_PROTECTOR=OFF
         -DOPUS_INSTALL_PKG_CONFIG_MODULE=OFF
         -DOPUS_INSTALL_CMAKE_CONFIG_MODULE=ON)
+
+# libvpx with its own configure script and the options the SDK gives it
+# (cmake/ExternalDependencies.cmake): VP8 only, real-time, threads, SIMD with
+# run-time CPU detection. The x86_64 Linux target with the AROS cross tools
+# produces what AROS loads (ELF objects, yasm in elf64 format); configure
+# turns PIC on for that target, so it is turned off explicitly.
+include(ProcessorCount)
+ProcessorCount(_aos_cpus)
+if(_aos_cpus EQUAL 0)
+    set(_aos_cpus 1)
+endif()
+set(AOS_JOBS ${_aos_cpus} CACHE STRING "Parallel jobs of the make-based ports (libvpx)")
+ExternalProject_Add(libvpx
+    SOURCE_DIR "${AOS_SDK_SOURCE_DIR}/external/libvpx"
+    CONFIGURE_COMMAND ${CMAKE_COMMAND} -E env CROSS=${AROS_TOOLCHAIN_DIR}/x86_64-aros-
+        <SOURCE_DIR>/configure
+        --target=x86_64-linux-gcc
+        --prefix=${CMAKE_INSTALL_PREFIX}
+        --libdir=${CMAKE_INSTALL_PREFIX}/lib
+        --enable-static
+        --disable-shared
+        --disable-pic
+        --enable-error-concealment
+        --enable-multithread
+        --enable-realtime-only
+        --enable-spatial-resampling
+        --enable-vp8
+        --disable-vp9
+        --enable-libs
+        --disable-install-docs
+        --disable-debug-libs
+        --disable-examples
+        --disable-unit-tests
+        --disable-tools
+        --as=yasm
+    BUILD_COMMAND make -j${AOS_JOBS}
+    INSTALL_COMMAND make install)
+
+# libyuv adds -fPIC to the compiler flags of every non-Windows build; the
+# -fno-PIC of the configuration flags comes later on the command line and
+# wins. Without the system paths it does not find the AROS SDK's libjpeg:
+# MJPEG decoding is not needed, and every program would have to link
+# libjpeg.
+set(AOS_NO_PIC_FLAGS "-O2 -DNDEBUG -fno-PIC")
+ExternalProject_Add(libyuv
+    SOURCE_DIR "${AOS_SDK_SOURCE_DIR}/external/libyuv"
+    CMAKE_ARGS ${AOS_PORT_ARGS}
+        -DCMAKE_FIND_USE_CMAKE_SYSTEM_PATH=OFF
+        "-DCMAKE_C_FLAGS_RELEASE=${AOS_NO_PIC_FLAGS}"
+        "-DCMAKE_CXX_FLAGS_RELEASE=${AOS_NO_PIC_FLAGS}")
+
+# libjpeg-turbo with the TurboJPEG API that mediastreamer2 uses, and its
+# x86_64 SIMD code (nasm). The forced header of the compatibility layer gives
+# its C sources the feature environment of the rest of the stack, in which
+# <stdlib.h> declares setenv().
+ExternalProject_Add(libjpeg-turbo
+    SOURCE_DIR "${AOS_SDK_SOURCE_DIR}/external/libjpeg-turbo"
+    CMAKE_ARGS ${AOS_PORT_ARGS}
+        -DWITH_TURBOJPEG=ON
+        -DWITH_JAVA=OFF
+        -DENABLE_TOOLS=OFF
+        "-DCMAKE_C_FLAGS=-include ${CMAKE_INSTALL_PREFIX}/include/aos_compat.h")
