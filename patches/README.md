@@ -6,6 +6,44 @@ patch files and go on top of the checked-out submodule before the SDK is
 configured. Everything else (POSIX gaps, sockets, build settings) is handled
 outside the SDK, in `compat/`, `deps/`, `cmake/` and `sdk/`.
 
+## Upstream revision
+
+This set of patches is made for one exact revision of linphone-sdk, the
+one the submodule `third_party/linphone-sdk` is pinned to:
+
+| | |
+|---|---|
+| Repository | <https://gitlab.linphone.org/BC/public/linphone-sdk.git> |
+| Branch | `release/5.5` |
+| Commit | `d2a55124fb8ed09043a00fbf5b321dff037528cf` (2026-11-17) |
+| `git describe` | `5.5.41-14-gd2a55124fb`: 14 commits after the tag `5.5.41` |
+
+The patches are tested on that commit only. It is not a tagged release:
+the tag `5.5.41` itself, a later commit of `release/5.5` or another branch
+may need different patches, and some of these may not apply there at all.
+Run `patches/apply.sh --check` before building any other revision. When
+the submodule moves to a new commit, the patches and this table change
+together.
+
+A clone of aos-linphone gets exactly this commit with
+`git submodule update --init third_party/linphone-sdk`. To fetch the same
+revision on its own, for example to read the sources or to try the
+patches outside the repository:
+
+```sh
+git init linphone-sdk
+cd linphone-sdk
+git remote add origin https://gitlab.linphone.org/BC/public/linphone-sdk.git
+git fetch --depth 1 origin d2a55124fb8ed09043a00fbf5b321dff037528cf
+git checkout FETCH_HEAD
+git apply <aos-linphone>/patches/linphone-sdk/*.patch
+```
+
+The fetch brings this one commit without history (about 250 MB checked
+out, without the nested submodules) and without tags. The SDK build takes
+its version from `git describe`, so build such a checkout with
+`LINPHONESDK_VERSION` set, see [sdk/README.md](../sdk/README.md).
+
 ## Applying
 
 ```sh
