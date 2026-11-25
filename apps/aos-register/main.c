@@ -40,6 +40,9 @@
 #define RESOURCES_DIR "PROGDIR:share"
 #define STACK_SIZE    (1024 * 1024)
 
+/* For the Version command; AOS_VERSION comes from cmake/version.cmake. */
+static const char version[] __attribute__((used)) = "$VER: aos-register " AOS_VERSION " (" AOS_VERSION_DATE ")";
+
 struct job {
     const char *identity;
     const char *password;

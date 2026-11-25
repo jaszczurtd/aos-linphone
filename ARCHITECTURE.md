@@ -157,6 +157,21 @@ archive needs an lha archiver (LHa for UNIX or jlha-utils); `--no-lha` makes
 the ZIP archive alone.
 The script header lists the options.
 
+The version lives in `cmake/version.cmake`: version.revision, the form of
+AmigaOS version strings, and the date of the release. The programs carry it
+in their `$VER:` string, which the `Version` command shows. Archive names
+follow the release tags: `0.1` on the commit tagged `v0.1`,
+`0.1-3-g1234abc` three commits later. A release sets both lines in that
+file, commits, and tags the commit:
+
+```
+git tag -a v0.1 -m "aos-linphone 0.1"
+git push origin v0.1
+```
+
+`package.sh` stops when a commit tagged `v*` carries another version, so a
+tag cannot publish archives with a different version inside.
+
 `scripts/build-release.sh <toolchain> <work dir>` does the whole chain:
 the SDK (skipped when the prefix in the work directory already holds it),
 both programs, then `package.sh`.
@@ -168,8 +183,8 @@ toolchain and SDK of one AROS revision (older SDKs lack parts of
 bsdsocket.library that the compatibility layer uses), so the first run
 builds them from the AROS sources, as the AROS project's own CI does, and
 caches them under `/opt/aros`, the path the toolchain records. That first
-run takes a few hours; later runs restore the toolchain, the SDK and the
-built linphone SDK from the cache.
+run takes about 40 minutes, most of it the AROS build; later runs restore
+the toolchain, the SDK and the built linphone SDK from the cache.
 
 ## Using the compatibility layer
 

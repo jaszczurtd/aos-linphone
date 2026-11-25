@@ -21,6 +21,9 @@
 #include <stdio.h>
 #include <string.h>
 
+/* For the Version command; AOS_VERSION comes from cmake/version.cmake. */
+static const char version[] __attribute__((used)) = "$VER: aos-phone-cmd " AOS_VERSION " (" AOS_VERSION_DATE ")";
+
 int main(void) {
     SIPTR args[2] = {0, 0};
     struct RDArgs *rdargs = ReadArgs((CONST_STRPTR) "PORT/K,COMMAND/A/F", args, NULL);

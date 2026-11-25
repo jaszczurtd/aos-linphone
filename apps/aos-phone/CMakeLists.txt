@@ -26,6 +26,9 @@ endforeach()
 
 set(AOS_PHONE_WARNINGS -Wall -Wextra -Werror)
 
+include(${CMAKE_CURRENT_SOURCE_DIR}/../../cmake/version.cmake)
+set(AOS_VERSION_DEFINES AOS_VERSION="${AOS_VERSION}" AOS_VERSION_DATE="${AOS_VERSION_DATE}")
+
 # The device layer: the AHI sound card, the video display, the cameras and
 # the file sources.
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/../../devices ${CMAKE_CURRENT_BINARY_DIR}/devices)
@@ -37,6 +40,7 @@ target_link_libraries(aos_phone_core PRIVATE liblinphone aos_devices)
 
 add_executable(aos-phone src/main.c src/gui.c src/lamp.c src/text.c src/video.c)
 target_compile_options(aos-phone PRIVATE ${AOS_PHONE_WARNINGS})
+target_compile_definitions(aos-phone PRIVATE ${AOS_VERSION_DEFINES})
 target_link_libraries(aos-phone PRIVATE aos_phone_core aos_devices mui icon cybergraphics)
 # liblinphone is C++: link with g++ so that libstdc++ comes along.
 set_target_properties(aos-phone PROPERTIES LINKER_LANGUAGE CXX)
@@ -71,6 +75,7 @@ endif()
 # Sends a command to the ARexx port of aos-phone without an ARexx interpreter.
 add_executable(aos-phone-cmd src/cmd.c)
 target_compile_options(aos-phone-cmd PRIVATE ${AOS_PHONE_WARNINGS})
+target_compile_definitions(aos-phone-cmd PRIVATE ${AOS_VERSION_DEFINES})
 target_link_libraries(aos-phone-cmd PRIVATE rexxsyslib)
 
 include(CTest)

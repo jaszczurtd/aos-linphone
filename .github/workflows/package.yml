@@ -6,7 +6,7 @@
 # (AROS_REVISION): older SDKs lack parts of bsdsocket.library that the
 # compatibility layer uses. The first run builds them from the AROS sources,
 # as the AROS project's own CI does (toolchain, then the core system), which
-# takes a few hours; the result is cached under /opt/aros, the absolute path
+# takes about half an hour; the result is cached under /opt/aros, the path
 # the toolchain was built for. The linphone SDK is cached the same way until
 # the submodule or the files that build it change.
 name: package

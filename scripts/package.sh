@@ -22,8 +22,11 @@
 #   --no-lha         make the ZIP archive only
 #
 # The archives are named aos-linphone-<version>-aros-x86_64.lha and .zip.
-# <version> is VERSION when set, else `git describe --tags --always`, with
-# -dirty when files other than the submodule differ from the last commit.
+# <version> is VERSION when set, else `git describe` of the release tags
+# without the v: 0.1 on the commit tagged v0.1, 0.1-3-g1234abc three commits
+# later, the short commit before the first tag; -dirty is added when files
+# other than the submodule differ from the last commit. A commit tagged v*
+# must carry that version in cmake/version.cmake, else the script stops.
 # The LHA archive needs an lha archiver: LHA names it, else lha (LHa for
 # UNIX) or jlha (jlha-utils) from the PATH. The source URL in SOURCE.txt comes from the remote origin, or from
 # AOS_SOURCE_URL when set.
@@ -77,10 +80,18 @@ done
 grammars=("$prefix"/share/belr/grammars/*.belr)
 [ -f "${grammars[0]}" ] || { echo "error: no belr grammars in $prefix/share/belr/grammars" >&2; exit 1; }
 
+# A release tag has to name the version the programs carry.
+release=$(sed -n 's/^set(AOS_VERSION \([0-9][0-9.]*\))$/\1/p' "$repo/cmake/version.cmake")
+tag=$(git -C "$repo" describe --tags --exact-match --match 'v[0-9]*' 2>/dev/null || true)
+if [ -n "$tag" ] && [ "${tag#v}" != "$release" ]; then
+    echo "error: the commit is tagged $tag, but cmake/version.cmake says version ${release:-?}" >&2
+    exit 1
+fi
 # The patches that build-sdk.sh applies to the submodule do not make a tree
 # dirty: they are part of the source.
 if [ -z "${VERSION:-}" ]; then
-    version=$(git -C "$repo" describe --tags --always)
+    version=$(git -C "$repo" describe --tags --always --match 'v[0-9]*')
+    version=${version#v}
     if ! git -C "$repo" diff --quiet HEAD -- . ':(exclude)third_party/linphone-sdk'; then
         version="$version-dirty"
         echo "warning: the working tree has uncommitted changes; SOURCE.txt names the last commit" >&2

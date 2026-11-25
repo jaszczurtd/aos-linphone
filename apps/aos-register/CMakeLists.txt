@@ -26,6 +26,8 @@ endforeach()
 
 add_executable(aos-register main.c)
 target_compile_options(aos-register PRIVATE -Wall -Wextra -Werror)
+include(${CMAKE_CURRENT_SOURCE_DIR}/../../cmake/version.cmake)
+target_compile_definitions(aos-register PRIVATE AOS_VERSION="${AOS_VERSION}" AOS_VERSION_DATE="${AOS_VERSION_DATE}")
 target_link_libraries(aos-register PRIVATE liblinphone)
 # liblinphone is C++: link with g++ so that libstdc++ comes along.
 set_target_properties(aos-register PROPERTIES LINKER_LANGUAGE CXX)

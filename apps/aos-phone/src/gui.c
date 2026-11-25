@@ -1592,7 +1592,7 @@ static Object *create_windows(void) {
     /* clang-format off */
     Object *app = NewObject(gui.phone_class->mcc_Class, NULL,
         MUIA_Application_Title, (IPTR)"aos-phone",
-        MUIA_Application_Version, (IPTR)"$VER: aos-phone 0.1 (24.11.2026)",
+        MUIA_Application_Version, (IPTR)"$VER: aos-phone " AOS_VERSION " (" AOS_VERSION_DATE ")",
         MUIA_Application_Description, (IPTR)"SIP phone",
         MUIA_Application_Base, (IPTR)"AOSPHONE",
         MUIA_Application_Commands, (IPTR)rexx_commands,
