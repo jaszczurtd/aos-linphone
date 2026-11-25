@@ -31,7 +31,10 @@ enum aos_reg_state {
     AOS_REG_PROGRESS,
     AOS_REG_OK,
     AOS_REG_CLEARED,
-    AOS_REG_FAILED
+    AOS_REG_FAILED,
+    /* A REGISTER renews the registration: still valid when it was
+       registered before, a new attempt after a failure otherwise. */
+    AOS_REG_REFRESHING
 };
 
 enum aos_call_state {
@@ -51,14 +54,23 @@ enum aos_msg_state {
 };
 
 enum aos_event_type {
-    /* The core runs. id: its SIP UDP port, peer: identity of the saved
-       account, text: its server address; both empty without a saved
-       account. */
+    /* The core runs. id: its SIP UDP port, peer: identity of the default
+       account, text: its server address; both empty without an account.
+       AOS_EVENT_ACCOUNTS with all accounts follows. */
     AOS_EVENT_STARTED,
     /* The core could not be created; the thread has ended. */
     AOS_EVENT_START_FAILED,
-    /* Registration state of the account. peer: identity, text: reason. */
+    /* Registration state of an account. peer: identity, state, text:
+       reason, id: 1 when calls go out through this account (the default
+       one). */
     AOS_EVENT_ACCOUNT,
+    /* The list of accounts follows: the receiver forgets the accounts it
+       knows. id: how many AOS_EVENT_ACCOUNT_INFO events come. Sent after
+       the core starts and after every change of the accounts. */
+    AOS_EVENT_ACCOUNTS,
+    /* One account of the list. peer: identity, text: server, state, id: 1
+       for the default account. */
+    AOS_EVENT_ACCOUNT_INFO,
     /* Call state, or video starting or stopping in a connected call. id,
        state, peer: the other party, text: reason, video: the call is
        connected and has video (known once the media streams run). */
@@ -77,7 +89,8 @@ enum aos_event_type {
     /* A snapshot of the received video was requested. id: the call, text:
        the JPEG file, in the system code page. */
     AOS_EVENT_SNAPSHOT,
-    /* A request could not be carried out. text: what failed. */
+    /* A request could not be carried out. text: what failed, peer: the
+       identity given in a request about an account, else empty. */
     AOS_EVENT_ERROR,
     /* id events were dropped because the event queue stayed full. */
     AOS_EVENT_LOST
@@ -118,6 +131,10 @@ struct aos_core_config {
        as with a file, so calls run without the echo canceller, which
        would only take time and drop samples. Not saved in linphonerc. */
     int capture_without_echo;
+    /* STUN server for ICE, e.g. "stun.linphone.org": calls then gather
+       their public address and connectivity candidates, which helps
+       through NAT. NULL or "": no ICE. */
+    const char *stun_server;
     /* Nonzero: liblinphone logs messages, not only warnings and errors. */
     int verbose;
     /* Called in the core thread after each new event. */
@@ -136,12 +153,25 @@ void aos_core_stop(void);
 /* Takes the oldest event. Returns 1, or 0 when there is none. */
 int aos_core_next_event(struct aos_core_event *event);
 
-/* Replaces the account with this one and registers it. server is the
-   registrar, e.g. sip:10.8.0.1:55555; NULL or "" means the identity's
-   domain. */
+/* Adds the account with this identity, or updates the one there is, and
+   registers it; it becomes the default account, which calls go out
+   through. server is the registrar, e.g. sip:10.8.0.1:55555; NULL or ""
+   means the identity's domain. An empty password keeps the saved one of an
+   existing account. An existing account registers again at once, also
+   with nothing changed, e.g. after a failure. Accounts stay in linphonerc
+   until removed. */
 int aos_core_register(const char *identity, const char *password, const char *server);
 
-int aos_core_unregister(void);
+/* Stops registering the account with this identity (NULL or "": the
+   default one); it stays saved. */
+int aos_core_unregister(const char *identity);
+
+/* Removes the account with this identity and its password from the core
+   and linphonerc; a registered account is unregistered first. */
+int aos_core_remove_account(const char *identity);
+
+/* Makes the account with this identity the default one. */
+int aos_core_set_default_account(const char *identity);
 
 /* Calls a SIP address, or a user name in the account's domain. */
 int aos_core_call(const char *address);

@@ -1,0 +1,9 @@
+# Workbench icon of the aos-linphone drawer that holds the programs, for the
+# AROS host tool ilbmtoicon:
+#   ilbmtoicon aos-linphone.info.src aos-phone.png aos-linphone.info
+# Put it next to the drawer, e.g. Work:aos-linphone.info for Work:aos-linphone.
+TYPE = DRAWER
+DRAWERLEFTPOS = 100
+DRAWERTOPPOS = 80
+DRAWERWIDTH = 420
+DRAWERHEIGHT = 180

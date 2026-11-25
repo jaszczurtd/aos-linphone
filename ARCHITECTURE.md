@@ -86,12 +86,13 @@ bottom row up.
 | `patches/` | source changes applied to the submodule, see [patches/README.md](patches/README.md) |
 | `deps/` | ports of the libraries the SDK needs: jsoncpp, speex, libxml2, mbedtls, libsrtp, opus, libvpx, libyuv, libjpeg-turbo |
 | `sdk/` | SDK build settings and documentation |
-| `scripts/` | `build-sdk.sh`, which builds and installs everything above |
+| `scripts/` | `build-sdk.sh`, which builds and installs everything above, `package.sh`, which packs the programs for AROS, and `build-release.sh`, which does both and builds the programs in between |
 | `devices/` | devices for mediastreamer2: the AHI sound card, the camera, the video display, the Mire test camera, and the sources: the AHI microphone, the VHI cameras and raw files |
 | `apps/aos-register/` | SIP registration test program, see [its README](apps/aos-register/README.md) |
 | `apps/aos-phone/` | the Zune SIP client, see [its README](apps/aos-phone/README.md) |
 | `tools/` | host tools for the tests: `sip-registrar` |
 | `.githooks/` | git hooks, see [CONTRIBUTING.md](CONTRIBUTING.md) |
+| `.github/workflows/` | the GitHub Actions workflow that builds and packs the programs, see [Packing](#packing) |
 
 ## Building the compatibility layer
 
@@ -133,9 +134,42 @@ AROS network stack that the tests do not judge.
 
 The network tests need AROSTCP running with a configured interface.
 `test_net_resolve` also expects at least one DNS server from the network
-configuration. `test_hw_sources` records from AHI unit 0 and grabs from a
-USB camera of `uvc.class`; without such a camera it skips the camera
-part. No other program may use the devices meanwhile.
+configuration. `test_dns` (in `apps/aos-phone/tests`) resolves real names,
+`sip.linphone.org` by default, with `getaddrinfo()` and with the resolver of
+belle-sip (A and SRV records), so its DNS server has to reach the internet.
+`test_https` fetches `https://subscribe.linphone.org/api/ping` through
+belle-sip's HTTP client, the one liblinphone's account services use, and
+checks the certificate against `share/linphone/rootca.pem`, which has to lie
+next to the program, as the belr grammars do.
+`test_hw_sources` records from AHI unit 0 and grabs from a USB camera of
+`uvc.class`; without such a camera it skips the camera part. No other
+program may use the devices meanwhile.
+
+## Packing
+
+`scripts/package.sh` packs a build of `aos-phone` (and, with `-r`,
+`aos-register`) into `aos-linphone-<version>-aros-x86_64.lha` and `.zip` in
+`builds/`, which git ignores. Each archive holds the drawer `aos-linphone`
+with the programs, their icons, the files they read from `share/`, the
+documentation and `SOURCE.txt`, which names the commits of the source as
+the AGPL asks, plus the drawer icon `aos-linphone.info` next to it. The LHA
+archive needs an lha archiver (LHa for UNIX or jlha-utils); `--no-lha` makes
+the ZIP archive alone.
+The script header lists the options.
+
+`scripts/build-release.sh <toolchain> <work dir>` does the whole chain:
+the SDK (skipped when the prefix in the work directory already holds it),
+both programs, then `package.sh`.
+
+The workflow `.github/workflows/package.yml` runs that chain on GitHub, on
+an Ubuntu 24.04 runner, and keeps the archives as an artifact of the run; a
+tag `v*` also publishes them as a GitHub release. The port needs the AROS
+toolchain and SDK of one AROS revision (older SDKs lack parts of
+bsdsocket.library that the compatibility layer uses), so the first run
+builds them from the AROS sources, as the AROS project's own CI does, and
+caches them under `/opt/aros`, the path the toolchain records. That first
+run takes a few hours; later runs restore the toolchain, the SDK and the
+built linphone SDK from the cache.
 
 ## Using the compatibility layer
 

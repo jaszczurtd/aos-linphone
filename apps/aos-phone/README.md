@@ -14,6 +14,7 @@ aos-phone [DATA=<directory>] [PORT=<number>] [RECORD=<directory>]
           [CAMERA=<name>] [VERBOSE]
           [TESTVIDEO=<file>] [TESTVIDEOSIZE=<width>x<height>] [TESTVIDEOFPS=<n>]
           [TESTSOUND=<file>] [TESTSOUNDRATE=<n>] [MICUNIT=<n>]
+          [STUN=<server>]
 ```
 
 - `DATA`: where the program keeps its settings, including the account and
@@ -41,6 +42,10 @@ aos-phone [DATA=<directory>] [PORT=<number>] [RECORD=<directory>]
 - `MICUNIT`: the unit of `ahi.device` (0 to 3) the microphone is recorded
   from; default 0. Its input (microphone, line) is the one set for that
   unit in the AHI preferences.
+- `STUN`: a STUN server, for example `stun.linphone.org`, which turns on
+  ICE: calls then learn their public address and try several ways for the
+  media, which helps when one or both sides sit behind NAT. By default
+  calls use no ICE.
 
 The program needs AROSTCP running and the belr grammars in
 `share/belr/grammars/` next to it, as `aos-register` does (see
@@ -115,16 +120,33 @@ a big-endian Amiga use `s16be`. Then start the program with, for example,
 ## Using it
 
 The main window shows the account, an address field and the list of
-calls:
+calls. The lamp left of the account shows its registration: green when the
+server has registered it, yellow while the program registers it, red when
+it is not registered (no account, no network, a server out of reach or
+refusing the password). Holding the mouse over the lamp names the state.
 
-- **Account...** opens the account window. Enter the identity, e.g.
-  `sip:alice@example.org`, the password and, when the registrar is not the
-  identity's domain, the server, e.g. `sip:example.org:5060`. **Register**
-  saves the account and registers it; the program registers it again at
-  every start until **Unregister**.
+- **Account...** opens the account window with the list of accounts. The
+  fields go Server, Identity, Password, and `sip:` already stands in front
+  of the first two. Enter the server, e.g. `sip.linphone.org` or
+  `10.8.0.1:5060`, then the user name: the identity takes its domain from
+  the server, port included, and shows it after the field, e.g.
+  `sip: alice @sip.linphone.org`. An account in another domain than its
+  server takes `alice@example.org`. Holding the mouse over a field explains
+  it. **Register** adds the account, or updates the one with that identity
+  (an empty password keeps the saved one), and registers it; pressed again,
+  it tries once more, e.g. after a failure. A missing field, an invalid
+  identity, a refused password or a server out of reach opens a message
+  window; the status line says it too. Every account stays saved and registers again at each start until
+  **Unregister**, and stays in the list until **Remove...**, which asks
+  first. Calls go out through one account, shown in bold in the list and on
+  the main window; **Use for calls** picks another, and a new account takes
+  over when it is added. Picking an account in the list fills the fields;
+  **New** empties them for another account. Calls to any registered account
+  come in.
 - **Call** calls the address in the field: a full SIP address, or a user
   name in the account's domain. The call window opens with the other party,
-  the state, the duration and the sound levels. **Answer** and **Hang up**
+  the state, the duration and the sound levels. While a call comes in, its
+  state shows in bold next to a green light with spreading waves. **Answer** and **Hang up**
   act on the call shown there; selecting a call in the list shows it.
 - **Chat** opens a chat window for the address. Messages that arrive open
   the window of their sender by themselves. Windows are matched by the user
@@ -163,8 +185,11 @@ The port `AOSPHONE.1` takes these commands; they do what the buttons do:
 
 | Command | Effect |
 |---|---|
-| `REGISTER <identity> <password> [<server>]` | sets the account and registers it |
-| `UNREGISTER` | unregisters the account |
+| `REGISTER <identity> <password> [<server>]` | adds the account or updates it, registers it and calls through it; the identity and server work as in the account window, e.g. `REGISTER alice secret sip.linphone.org` or `REGISTER sip:alice@example.org secret` |
+| `UNREGISTER [<identity>]` | unregisters that account, by default the one calls go through |
+| `REMOVEACCOUNT <identity>` | removes the account and its password, without asking |
+| `USEACCOUNT <identity>` | makes calls go out through that account |
+| `ACCOUNTS` | returns the accounts, e.g. `sip:a@x.org registered default\|sip:b@y.org not registered` |
 | `CALL <address>` | calls the address |
 | `ANSWER` | answers the call in the call window, or the first incoming call |
 | `HANGUP` | declines or ends the call in the call window, or the current call |
@@ -172,7 +197,7 @@ The port `AOSPHONE.1` takes these commands; they do what the buttons do:
 | `SNAPSHOT <file>` | saves the next picture received in that call as a JPEG file |
 | `VIDEO [ON\|OFF]` | turns the video of that call on or off; without an argument, switches it |
 | `SEND <address> <text>` | sends a text message and shows it in its chat window |
-| `STATUS` | returns the state, e.g. `registered\|port 5060\|call 1 connected sip:bob@example.org video` |
+| `STATUS` | returns the state of the account calls go through, the SIP port and the calls, e.g. `registered\|port 5060\|call 1 connected sip:bob@example.org video` |
 | `QUIT` | ends the program |
 
 A command returns 0, or 10 when it could not be passed on. Its `RESULT` is
@@ -213,12 +238,19 @@ cmake -S apps/aos-phone -B build-phone -G Ninja \
 cmake --build build-phone
 ```
 
-The build gives `aos-phone`, `aos-phone.info`, `aos-phone-cmd` and the
-tests `test_queue`, `test_video_display` and `test_capture`.
-`aos-phone.info` is the Workbench icon; copy it next to the program. `ilbmtoicon` is a host tool built with AROS itself; without
-`AOS_ILBMTOICON` (or `ilbmtoicon` in the `PATH`) the build skips the icon.
-The icon is made from `icons/aos-phone.png` and `icons/aos-phone.info.src`,
-which also holds its stack size and tool types. With
+The build gives `aos-phone`, `aos-phone.info`, `aos-phone-cmd`,
+`aos-linphone.info` and the tests `test_queue`, `test_video_display`,
+`test_capture`, `test_hw_sources`, `test_dns` and `test_https`. `aos-phone.info` is the
+Workbench icon of the program; copy it next to the program.
+`aos-linphone.info` is the icon of the drawer that holds it: copy it next to
+the drawer, e.g. to `Work:aos-linphone.info` for `Work:aos-linphone`.
+`ilbmtoicon` is a host tool built with AROS itself (its source,
+`tools/ilbmtoicon/ilbmtoicon.c` in the AROS tree, also builds on its own
+with `gcc ilbmtoicon.c -lpng -lz`); without `AOS_ILBMTOICON` (or
+`ilbmtoicon` in the `PATH`) the build skips the icons. Both icons are made
+from `icons/aos-phone.png`; `icons/aos-phone.info.src` also holds the stack
+size and tool types of the program, `icons/aos-linphone.info.src` the size
+of the drawer window. With
 `-DAOS_TEST_RUNNER=...`, as for the tests of the compatibility layer (see
 [ARCHITECTURE.md](../../ARCHITECTURE.md#running-the-tests)), CTest runs the
 tests on AROS.
@@ -232,10 +264,13 @@ tests on AROS.
 | `src/gui.c`, `src/gui.h` | the Zune windows, the ARexx port and the handling of core events |
 | `src/text.c`, `src/text.h` | conversion between UTF-8 and the system code page |
 | `src/video.c`, `src/video.h` | the Zune area that draws one picture of a call |
+| `src/lamp.c`, `src/lamp.h` | the Zune area that draws the account lamp |
 | `src/main.c` | arguments, tool types, test files and start-up |
 | `src/cmd.c` | `aos-phone-cmd` |
-| `icons/` | the image and description of the Workbench icon |
+| `icons/` | the image and descriptions of the Workbench icons |
 | `tests/test_queue.c` | tests of the queues, run on AROS |
+| `tests/test_dns.c` | tests of name resolution with `getaddrinfo()` and the resolver of belle-sip, run on AROS |
+| `tests/test_https.c` | tests of HTTPS through belle-sip's HTTP client (TCP, TLS, certificate check), run on AROS |
 | `../../devices/source.h` | the interface of the sources a camera or microphone takes its data from |
 | `../../devices/ahi/` | the AHI sound card for mediastreamer2, shared with other programs |
 | `../../devices/video/` | the video display, the camera that shows a source and the Mire test camera |

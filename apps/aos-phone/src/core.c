@@ -37,11 +37,14 @@
 #define MAX_MESSAGES          16 /* sent messages waiting for their final state */
 #define PASSWORD_MAX          128
 #define PATH_MAX_LEN          256
+#define MAX_LEAVING           4   /* removed accounts still unregistering */
 #define DEFAULT_DOWNLOAD_KBIT 512 /* the other side then sends VP8 at VGA size or less */
 
 enum command_type {
     CMD_REGISTER,
     CMD_UNREGISTER,
+    CMD_REMOVE_ACCOUNT,
+    CMD_SET_DEFAULT,
     CMD_CALL,
     CMD_ANSWER,
     CMD_HANGUP,
@@ -104,6 +107,9 @@ static struct {
     LinphoneCore *core;
     struct call_slot calls[AOS_CORE_MAX_CALLS];
     struct message_slot messages[MAX_MESSAGES];
+    /* Removed accounts whose password stays until their unregistration has
+       ended, since unregistering needs it; user@domain, "" when free. */
+    char leaving[MAX_LEAVING][AOS_CORE_ADDR_MAX];
     int next_call_id;
     int recordings;  /* recording files named so far */
     int vhi_cameras; /* cameras of uvc.class found at start */
@@ -198,6 +204,15 @@ static void push_event(const struct aos_core_event *event) {
 static void push_error(const char *what) {
     struct aos_core_event event;
     event_init(&event, AOS_EVENT_ERROR);
+    copy_text(event.text, sizeof(event.text), what);
+    push_event(&event);
+}
+
+/* An error of a request about an account, with the identity as requested. */
+static void push_account_error(const char *identity, const char *what) {
+    struct aos_core_event event;
+    event_init(&event, AOS_EVENT_ERROR);
+    copy_text(event.peer, sizeof(event.peer), identity);
     copy_text(event.text, sizeof(event.text), what);
     push_event(&event);
 }
@@ -400,13 +415,49 @@ static void report_levels(void) {
 static int map_reg_state(LinphoneRegistrationState state) {
     switch (state) {
     case LinphoneRegistrationProgress: return AOS_REG_PROGRESS;
-    /* Refreshing renews a registration that is still valid. */
-    case LinphoneRegistrationOk:
-    case LinphoneRegistrationRefreshing:
-        return AOS_REG_OK;
+    case LinphoneRegistrationOk: return AOS_REG_OK;
+    case LinphoneRegistrationRefreshing: return AOS_REG_REFRESHING;
     case LinphoneRegistrationCleared: return AOS_REG_CLEARED;
     case LinphoneRegistrationFailed: return AOS_REG_FAILED;
     default: return AOS_REG_NONE;
+    }
+}
+
+static void leaving_key(const LinphoneAddress *identity, char *key, size_t size) {
+    snprintf(key, size, "%s@%s", linphone_address_get_username(identity) ? linphone_address_get_username(identity) : "",
+             linphone_address_get_domain(identity) ? linphone_address_get_domain(identity) : "");
+}
+
+static void remove_password(const char *key) {
+    CORE_THREAD_ONLY();
+    char username[AOS_CORE_ADDR_MAX];
+    copy_text(username, sizeof(username), key);
+    char *at = strrchr(username, '@');
+    if (at == NULL) {
+        return;
+    }
+    *at = '\0';
+    const LinphoneAuthInfo *auth = linphone_core_find_auth_info(g.core, NULL, username, at + 1);
+    if (auth != NULL) {
+        linphone_core_remove_auth_info(g.core, auth);
+        linphone_config_sync(linphone_core_get_config(g.core));
+    }
+}
+
+/* Drops the password of a removed account once its registration has
+   ended; accounts still in the list keep theirs. */
+static void forget_leaving(const LinphoneAddress *identity) {
+    CORE_THREAD_ONLY();
+    if (identity == NULL) {
+        return;
+    }
+    char key[AOS_CORE_ADDR_MAX];
+    leaving_key(identity, key, sizeof(key));
+    for (int i = 0; i < MAX_LEAVING; ++i) {
+        if (g.leaving[i][0] != '\0' && strcmp(g.leaving[i], key) == 0) {
+            remove_password(key);
+            g.leaving[i][0] = '\0';
+        }
     }
 }
 
@@ -417,17 +468,83 @@ static void on_account_state(LinphoneCore *core, LinphoneAccount *account, Linph
     struct aos_core_event event;
     event_init(&event, AOS_EVENT_ACCOUNT);
     event.state = map_reg_state(state);
+    event.id = account == linphone_core_get_default_account(g.core);
     copy_address(event.peer, sizeof(event.peer),
                  linphone_account_params_get_identity_address(linphone_account_get_params(account)));
     copy_text(event.text, sizeof(event.text), message);
     push_event(&event);
+    if (state != LinphoneRegistrationProgress && state != LinphoneRegistrationOk &&
+        state != LinphoneRegistrationRefreshing) {
+        forget_leaving(linphone_account_params_get_identity_address(linphone_account_get_params(account)));
+    }
+}
+
+/* The account whose identity matches the address (user, domain, port), or
+   NULL. */
+static LinphoneAccount *find_account(const char *identity) {
+    CORE_THREAD_ONLY();
+    if (identity == NULL || identity[0] == '\0') {
+        return linphone_core_get_default_account(g.core);
+    }
+    LinphoneAddress *wanted = linphone_factory_create_address(g.factory, identity);
+    if (wanted == NULL) {
+        return NULL;
+    }
+    LinphoneAccount *found = NULL;
+    for (const bctbx_list_t *it = linphone_core_get_account_list(g.core); it != NULL && found == NULL;
+         it = bctbx_list_next(it)) {
+        LinphoneAccount *account = bctbx_list_get_data(it);
+        const LinphoneAddress *address = linphone_account_params_get_identity_address(linphone_account_get_params(account));
+        if (address != NULL && linphone_address_weak_equal(address, wanted)) {
+            found = account;
+        }
+    }
+    linphone_address_unref(wanted);
+    return found;
+}
+
+/* Sends the whole list of accounts (AOS_EVENT_ACCOUNTS, then one
+   AOS_EVENT_ACCOUNT_INFO each) and writes linphonerc, so that a change of
+   the accounts survives whatever happens next. */
+static void push_accounts(void) {
+    CORE_THREAD_ONLY();
+    const bctbx_list_t *list = linphone_core_get_account_list(g.core);
+    LinphoneAccount *def = linphone_core_get_default_account(g.core);
+    struct aos_core_event event;
+    event_init(&event, AOS_EVENT_ACCOUNTS);
+    event.id = (int)bctbx_list_size(list);
+    push_event(&event);
+    for (const bctbx_list_t *it = list; it != NULL; it = bctbx_list_next(it)) {
+        LinphoneAccount *account = bctbx_list_get_data(it);
+        const LinphoneAccountParams *params = linphone_account_get_params(account);
+        event_init(&event, AOS_EVENT_ACCOUNT_INFO);
+        event.id = account == def;
+        event.state = map_reg_state(linphone_account_get_state(account));
+        copy_address(event.peer, sizeof(event.peer), linphone_account_params_get_identity_address(params));
+        copy_address(event.text, sizeof(event.text), linphone_account_params_get_server_address(params));
+        push_event(&event);
+    }
+    linphone_config_sync(linphone_core_get_config(g.core));
+}
+
+/* Replaces the password saved for user@domain. */
+static void set_password(const char *username, const char *domain, const char *password) {
+    CORE_THREAD_ONLY();
+    const LinphoneAuthInfo *old = linphone_core_find_auth_info(g.core, NULL, username, domain);
+    if (old != NULL) {
+        linphone_core_remove_auth_info(g.core, old);
+    }
+    LinphoneAuthInfo *auth =
+        linphone_factory_create_auth_info_2(g.factory, username, NULL, password, NULL, NULL, domain, NULL);
+    linphone_core_add_auth_info(g.core, auth);
+    linphone_auth_info_unref(auth);
 }
 
 static void do_register(const struct command *cmd) {
     CORE_THREAD_ONLY();
     LinphoneAddress *identity = linphone_factory_create_address(g.factory, cmd->address);
     if (identity == NULL || linphone_address_get_username(identity) == NULL) {
-        push_error("invalid identity");
+        push_account_error(cmd->address, "invalid identity");
         if (identity != NULL) {
             linphone_address_unref(identity);
         }
@@ -441,44 +558,108 @@ static void do_register(const struct command *cmd) {
     }
     LinphoneAddress *server = linphone_factory_create_address(g.factory, server_text);
     if (server == NULL) {
-        push_error("invalid server address");
+        push_account_error(cmd->address, "invalid server address");
         linphone_address_unref(identity);
         return;
     }
 
-    linphone_core_clear_accounts(g.core);
-    linphone_core_clear_all_auth_info(g.core);
-
-    LinphoneAuthInfo *auth = linphone_factory_create_auth_info_2(
-        g.factory, linphone_address_get_username(identity), NULL, cmd->password, NULL, NULL,
-        linphone_address_get_domain(identity), NULL);
-    linphone_core_add_auth_info(g.core, auth);
-    linphone_auth_info_unref(auth);
-
-    LinphoneAccountParams *params = linphone_core_create_account_params(g.core);
-    linphone_account_params_set_identity_address(params, identity);
-    linphone_account_params_set_server_address(params, server);
-    linphone_account_params_enable_register(params, TRUE);
-    LinphoneAccount *account = linphone_core_create_account(g.core, params);
-    linphone_account_params_unref(params);
-    linphone_core_add_account(g.core, account);
-    linphone_core_set_default_account(g.core, account);
-    linphone_account_unref(account);
+    LinphoneAccount *account = find_account(cmd->address);
+    if (account == NULL && cmd->password[0] == '\0') {
+        push_account_error(cmd->address, "a new account needs a password");
+    } else {
+        if (cmd->password[0] != '\0') {
+            set_password(linphone_address_get_username(identity), linphone_address_get_domain(identity),
+                         cmd->password);
+        }
+        if (account != NULL) {
+            const LinphoneAccountParams *old = linphone_account_get_params(account);
+            const LinphoneAddress *old_server = linphone_account_params_get_server_address(old);
+            /* A new server or a registration turned back on makes the core
+               register by itself; otherwise the parameters stay the same
+               and only a refresh sends a REGISTER, with a new password or
+               again after a failure. */
+            int refresh = linphone_account_params_register_enabled(old) && old_server != NULL &&
+                          linphone_address_equal(old_server, server);
+            LinphoneAccountParams *params = linphone_account_params_clone(old);
+            linphone_account_params_set_server_address(params, server);
+            linphone_account_params_enable_register(params, TRUE);
+            linphone_account_set_params(account, params);
+            linphone_account_params_unref(params);
+            if (refresh) {
+                linphone_account_refresh_register(account);
+            }
+        } else {
+            LinphoneAccountParams *params = linphone_core_create_account_params(g.core);
+            linphone_account_params_set_identity_address(params, identity);
+            linphone_account_params_set_server_address(params, server);
+            linphone_account_params_enable_register(params, TRUE);
+            account = linphone_core_create_account(g.core, params);
+            linphone_account_params_unref(params);
+            linphone_core_add_account(g.core, account);
+            linphone_account_unref(account);
+        }
+        linphone_core_set_default_account(g.core, account);
+        push_accounts();
+    }
     linphone_address_unref(identity);
     linphone_address_unref(server);
 }
 
-static void do_unregister(void) {
+static void do_unregister(const struct command *cmd) {
     CORE_THREAD_ONLY();
-    LinphoneAccount *account = linphone_core_get_default_account(g.core);
+    LinphoneAccount *account = find_account(cmd->address);
     if (account == NULL) {
-        push_error("no account to unregister");
+        push_account_error(cmd->address, "no such account to unregister");
         return;
     }
     LinphoneAccountParams *params = linphone_account_params_clone(linphone_account_get_params(account));
     linphone_account_params_enable_register(params, FALSE);
     linphone_account_set_params(account, params);
     linphone_account_params_unref(params);
+    push_accounts();
+}
+
+static void do_remove_account(const struct command *cmd) {
+    CORE_THREAD_ONLY();
+    LinphoneAccount *account = cmd->address[0] != '\0' ? find_account(cmd->address) : NULL;
+    if (account == NULL) {
+        push_account_error(cmd->address, "no such account to remove");
+        return;
+    }
+    char key[AOS_CORE_ADDR_MAX];
+    leaving_key(linphone_account_params_get_identity_address(linphone_account_get_params(account)), key, sizeof(key));
+    int registered = linphone_account_get_state(account) == LinphoneRegistrationOk ||
+                     linphone_account_get_state(account) == LinphoneRegistrationRefreshing ||
+                     linphone_account_get_state(account) == LinphoneRegistrationProgress;
+    /* The core unregisters a registered account before it lets it go, and
+       needs the password for that: it goes when the registration ends
+       (on_account_state()), or when the core stops. */
+    linphone_core_remove_account(g.core, account);
+    int queued = 0;
+    for (int i = 0; registered && !queued && i < MAX_LEAVING; ++i) {
+        if (g.leaving[i][0] == '\0') {
+            copy_text(g.leaving[i], sizeof(g.leaving[i]), key);
+            queued = 1;
+        }
+    }
+    if (!queued) {
+        remove_password(key);
+    }
+    if (linphone_core_get_default_account(g.core) == NULL && linphone_core_get_account_list(g.core) != NULL) {
+        linphone_core_set_default_account(g.core, bctbx_list_get_data(linphone_core_get_account_list(g.core)));
+    }
+    push_accounts();
+}
+
+static void do_set_default(const struct command *cmd) {
+    CORE_THREAD_ONLY();
+    LinphoneAccount *account = cmd->address[0] != '\0' ? find_account(cmd->address) : NULL;
+    if (account == NULL) {
+        push_account_error(cmd->address, "no such account");
+        return;
+    }
+    linphone_core_set_default_account(g.core, account);
+    push_accounts();
 }
 
 /* ---- call requests ---- */
@@ -752,6 +933,7 @@ static void push_started(void) {
         copy_address(event.text, sizeof(event.text), linphone_account_params_get_server_address(params));
     }
     push_event(&event);
+    push_accounts();
 }
 
 /* The core chooses its sound devices before the AHI card exists. Reloading
@@ -900,6 +1082,16 @@ static int create_core(void) {
     linphone_core_set_dns_servers(g.core, dns);
     bctbx_list_free(dns);
 
+    /* ICE with a STUN server for every account without a policy of its own. */
+    if (g.config.stun_server != NULL && g.config.stun_server[0] != '\0') {
+        LinphoneNatPolicy *policy = linphone_core_create_nat_policy(g.core);
+        linphone_nat_policy_set_stun_server(policy, g.config.stun_server);
+        linphone_nat_policy_enable_stun(policy, TRUE);
+        linphone_nat_policy_enable_ice(policy, TRUE);
+        linphone_core_set_nat_policy(g.core, policy);
+        linphone_nat_policy_unref(policy);
+    }
+
     LinphoneCoreCbs *cbs = linphone_factory_create_core_cbs(g.factory);
     linphone_core_cbs_set_call_state_changed(cbs, on_call_state);
     linphone_core_cbs_set_account_registration_state_changed(cbs, on_account_state);
@@ -919,7 +1111,9 @@ static void run_command(struct command *cmd) {
     CORE_THREAD_ONLY();
     switch (cmd->type) {
     case CMD_REGISTER: do_register(cmd); break;
-    case CMD_UNREGISTER: do_unregister(); break;
+    case CMD_UNREGISTER: do_unregister(cmd); break;
+    case CMD_REMOVE_ACCOUNT: do_remove_account(cmd); break;
+    case CMD_SET_DEFAULT: do_set_default(cmd); break;
     case CMD_CALL: do_call(cmd); break;
     case CMD_ANSWER: do_answer(cmd->id); break;
     case CMD_HANGUP: do_hangup(cmd->id); break;
@@ -947,6 +1141,14 @@ static void destroy_core(void) {
         if (g.messages[i].id != 0) {
             linphone_chat_message_unref(g.messages[i].message);
             memset(&g.messages[i], 0, sizeof(g.messages[i]));
+        }
+    }
+    /* Removed accounts still unregistering lose their password now, so
+       that linphonerc does not keep it. */
+    for (int i = 0; i < MAX_LEAVING; ++i) {
+        if (g.leaving[i][0] != '\0') {
+            remove_password(g.leaving[i]);
+            g.leaving[i][0] = '\0';
         }
     }
     linphone_core_stop(g.core);
@@ -1081,8 +1283,16 @@ static int simple_command(enum command_type type, int id, const char *address) {
     return push_command(&cmd);
 }
 
-int aos_core_unregister(void) {
-    return simple_command(CMD_UNREGISTER, 0, NULL);
+int aos_core_unregister(const char *identity) {
+    return simple_command(CMD_UNREGISTER, 0, identity);
+}
+
+int aos_core_remove_account(const char *identity) {
+    return simple_command(CMD_REMOVE_ACCOUNT, 0, identity);
+}
+
+int aos_core_set_default_account(const char *identity) {
+    return simple_command(CMD_SET_DEFAULT, 0, identity);
 }
 
 int aos_core_call(const char *address) {

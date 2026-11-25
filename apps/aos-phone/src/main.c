@@ -6,6 +6,7 @@
  *                  [CAMERA=<name>] [VERBOSE]
  *                  [TESTVIDEO=<file>] [TESTVIDEOSIZE=<w>x<h>] [TESTVIDEOFPS=<n>]
  *                  [TESTSOUND=<file>] [TESTSOUNDRATE=<n>] [MICUNIT=<n>]
+ *                  [STUN=<server>]
  *
  *   DATA  where the linphone core keeps its configuration, including the
  *         account; default PROGDIR:aos-phone-data. It must be a directory,
@@ -28,6 +29,8 @@
  *         it as the sound of the microphone, without echo cancellation.
  *   MICUNIT  the AHI unit (0-3) calls record the microphone from; default 0,
  *         the input chosen in the AHI preferences for that unit.
+ *   STUN  STUN server (e.g. stun.linphone.org) for ICE, which finds a way
+ *         for the media through NAT; default no ICE.
  *
  * Started from its icon, the program takes the same settings from the tool
  * types of the same names. Its output then goes nowhere, unless the tool
@@ -97,6 +100,7 @@ struct settings {
     char test_sound[AOS_FILE_PATH_MAX + 1]; /* "": the AHI card records MICUNIT */
     int test_sound_rate;
     int mic_unit;
+    char stun[256]; /* "": no ICE */
 };
 
 /* The sources of the test files; the core thread uses them until it ends. */
@@ -112,10 +116,10 @@ static void copy_setting(char *dst, size_t size, const char *value) {
 }
 
 static int read_arguments(struct settings *settings) {
-    SIPTR args[11] = {0};
+    SIPTR args[12] = {0};
     struct RDArgs *rdargs = ReadArgs((CONST_STRPTR) "DATA/K,PORT/K/N,RECORD/K,CAMERA/K,VERBOSE/S,"
                                                     "TESTVIDEO/K,TESTVIDEOSIZE/K,TESTVIDEOFPS/K/N,"
-                                                    "TESTSOUND/K,TESTSOUNDRATE/K/N,MICUNIT/K/N",
+                                                    "TESTSOUND/K,TESTSOUNDRATE/K/N,MICUNIT/K/N,STUN/K",
                                      args, NULL);
     if (rdargs == NULL) {
         PrintFault(IoErr(), (CONST_STRPTR) "aos-phone");
@@ -151,6 +155,9 @@ static int read_arguments(struct settings *settings) {
     }
     if (args[10] != 0) {
         settings->mic_unit = (int)*(LONG *)args[10];
+    }
+    if (args[11] != 0) {
+        copy_setting(settings->stun, sizeof(settings->stun), (const char *)args[11]);
     }
     FreeArgs(rdargs);
     return 0;
@@ -224,6 +231,7 @@ static void read_tool_types(struct settings *settings) {
     if ((value = tool_type(types, "MICUNIT")) != NULL) {
         settings->mic_unit = atoi(value);
     }
+    path_tool_type(types, "STUN", settings->stun, sizeof(settings->stun));
     FreeDiskObject(icon);
 }
 
@@ -307,6 +315,7 @@ int main(int argc, char **argv) {
         .extra_camera = settings.test_video[0] != '\0' ? &test_video.source : NULL,
         .capture = settings.test_sound[0] != '\0' ? &test_sound.source : &microphone.source,
         .capture_without_echo = settings.test_sound[0] != '\0',
+        .stun_server = settings.stun,
         .verbose = settings.verbose,
         .notify = aos_gui_notify,
         .context = NULL,

@@ -1,0 +1,134 @@
+# Builds aos-phone and aos-register for AROS x86_64 and packs them into the
+# LHA and ZIP archives of scripts/package.sh. Every run keeps the archives
+# as an artifact; a tag v* also publishes them as a GitHub release.
+#
+# The port needs the AROS cross toolchain and SDK of one AROS revision
+# (AROS_REVISION): older SDKs lack parts of bsdsocket.library that the
+# compatibility layer uses. The first run builds them from the AROS sources,
+# as the AROS project's own CI does (toolchain, then the core system), which
+# takes a few hours; the result is cached under /opt/aros, the absolute path
+# the toolchain was built for. The linphone SDK is cached the same way until
+# the submodule or the files that build it change.
+name: package
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  AROS_REVISION: 9c39558be3505ce5d09dd5813371350f7943eefd
+  AROS: /opt/aros
+  # The shallow submodule has no upstream tags for `git describe`.
+  LINPHONESDK_VERSION: 5.5.41
+
+jobs:
+  aros-x86_64:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # tags, for the version in the archive names
+
+      - name: Fetch the linphone-sdk submodule
+        run: |
+          git submodule update --init --depth 1 third_party/linphone-sdk
+          # One key for restoring and saving, taken before anything is built.
+          sdk_commit=$(git rev-parse HEAD:third_party/linphone-sdk)
+          echo "SDK_KEY=sdk-$AROS_REVISION-$sdk_commit-${{ hashFiles('compat/**', 'deps/**', 'patches/**', 'sdk/**', 'cmake/**', 'scripts/build-sdk.sh') }}" >> "$GITHUB_ENV"
+
+      - name: Install the host tools
+        run: |
+          sudo apt-get update
+          # The AROS build (as in its scripts/azure), then the port.
+          sudo apt-get install -y --no-install-recommends \
+            gawk bison flex byacc netpbm automake cmake meson ninja-build gperf \
+            python3-mako python3-yaml libswitch-perl gcc-multilib g++ \
+            libpng-dev zlib1g-dev liblzma-dev liblzo2-dev libxcursor-dev libxxf86vm-dev \
+            libgl1-mesa-dev libasound2-dev libsdl1.2-dev mtools xorriso genisoimage wget \
+            nasm yasm jlha-utils zip
+          sudo mkdir -p "$AROS"
+          sudo chown "$(id -u):$(id -g)" "$AROS"
+
+      - name: Restore the AROS toolchain and SDK
+        id: aros
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            /opt/aros/toolchain
+            /opt/aros/build/bin/pc-x86_64/AROS/Developer
+            /opt/aros/build/bin/linux-x86_64/tools/ilbmtoicon
+          key: aros-pc-x86_64-${{ env.AROS_REVISION }}
+
+      - name: Make room for the AROS build
+        if: steps.aros.outputs.cache-hit != 'true'
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          df -h /
+
+      - name: Build the AROS toolchain and SDK
+        if: steps.aros.outputs.cache-hit != 'true'
+        run: |
+          git init -q "$AROS/src"
+          cd "$AROS/src"
+          git remote add origin https://github.com/aros-development-team/AROS.git
+          git fetch -q --depth 1 origin "$AROS_REVISION"
+          git checkout -q FETCH_HEAD
+          git submodule update -q --init --recursive --depth 1
+          mkdir -p "$AROS/build"
+          cd "$AROS/build"
+          common=(--target=pc-x86_64 --with-portssources="$AROS/ports" --with-aros-toolchain-install="$AROS/toolchain")
+          "$AROS/src/configure" "${common[@]}"
+          make -j"$(nproc)" crosstools
+          "$AROS/src/configure" "${common[@]}" --with-aros-toolchain=yes
+          make -j"$(nproc)"
+
+      - name: Save the AROS toolchain and SDK
+        if: steps.aros.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            /opt/aros/toolchain
+            /opt/aros/build/bin/pc-x86_64/AROS/Developer
+            /opt/aros/build/bin/linux-x86_64/tools/ilbmtoicon
+          key: aros-pc-x86_64-${{ env.AROS_REVISION }}
+
+      - name: Restore the linphone SDK
+        id: sdk
+        uses: actions/cache/restore@v4
+        with:
+          path: build-ci/prefix
+          key: ${{ env.SDK_KEY }}
+
+      - name: Build the linphone SDK
+        if: steps.sdk.outputs.cache-hit != 'true'
+        run: scripts/build-sdk.sh "$AROS/toolchain" build-ci/prefix build-ci
+
+      - name: Save the linphone SDK
+        if: steps.sdk.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: build-ci/prefix
+          key: ${{ env.SDK_KEY }}
+
+      - name: Build the programs and pack them
+        env:
+          ILBMTOICON: /opt/aros/build/bin/linux-x86_64/tools/ilbmtoicon
+          OUT: build-ci/out
+        run: scripts/build-release.sh "$AROS/toolchain" build-ci
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: aos-linphone-aros-x86_64
+          path: build-ci/out/*
+          if-no-files-found: error
+
+      - name: Publish the release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: build-ci/out/*
