@@ -30,12 +30,40 @@ and video calls. It:
 - turns the video of a call on and off;
 - sends and receives text messages;
 - records calls and plays sound files into them;
-- comes for AROS as LHA and ZIP archives with icons, ready to unpack.
+- comes for AROS/MorphOS as LHA and ZIP archives with icons, ready to unpack.
 
 Sound uses Opus, G.722, Speex or G.711, video uses VP8. HTTPS with
 certificate checks works too, which creating linphone.org accounts from the
 application will need. For tests without devices, prepared sound and video
 files can stand in for the microphone and the camera.
+
+## Getting started
+
+The releases of the GitHub repository carry ready archives, as `.lha` and
+`.zip`: `aos-linphone-<version>-aros-x86_64` for AROS and, from the release
+after 0.1, `aos-linphone-<version>-morphos-ppc` for MorphOS. Unpack one
+where the drawer should live, for example to `Work:`; it holds the drawer
+`aos-linphone` with its icon. Double-click `aos-phone` inside, or start it
+from a shell (see [apps/aos-phone/README.md](apps/aos-phone/README.md)).
+
+On MorphOS, a USB camera also needs the xHCI driver and `uvc.class` ported
+from AROS. They come in an archive of their own,
+`aos-linphone-drivers-<version>-morphos-ppc`, and are experimental; see
+[drivers/README.md](drivers/README.md).
+
+To build the phone yourself, cross-compile it for AROS x86_64 or MorphOS:
+
+1. Build the linphone SDK and the libraries it needs, as described in
+   [sdk/README.md](sdk/README.md).
+2. Build, install and run the phone with the help of
+   [apps/aos-phone/README.md](apps/aos-phone/README.md).
+3. Optionally build and pack everything like a release with
+   `scripts/build-release.sh`, see [ARCHITECTURE.md](ARCHITECTURE.md#packing).
+
+`aos-register` is a small console program that only registers a SIP
+account. It comes in handy for checking the network and the SIP server
+before you start the phone; see
+[apps/aos-register/README.md](apps/aos-register/README.md).
 
 ## Tested setup
 
@@ -104,30 +132,19 @@ when a DNS server is set by hand in the network preferences; without it, it
 uses the address of the domain itself. [PORTS.md](PORTS.md#morphos) has the
 details.
 
-### Asterisk
+### Calling mobile phones (using linphone.org and official linphone app)
 
-The tests used Asterisk 20 with PJSIP. The endpoints allowed G.711
-(`allow = ulaw,alaw`) for sound and VP8 (`allow = vp8`) for video.
-Asterisk does not convert video, so both phones need a video codec the
-endpoint allows, and `aos-phone` has only VP8. Opus or G.722 can be added
-for better sound where the Asterisk build supports them; that was not
-tested. The phone in the test sat behind NAT, so its endpoint also had
-`rewrite_contact = yes`, `force_rport = yes`, `rtp_symmetric = yes` and
-`direct_media = no`.
+`aos-phone` supports the Linphone server, so you can create an account at
+[linphone.org](https://www.linphone.org) and use it to make and receive audio and video calls.
 
-### Calling mobile phones
+There is also an official Linphone app available on Google Play and the
+Apple App Store, which you can call from `aos-phone` and use to call
+`aos-phone` as well.
 
-Android and iOS put a phone app to sleep when it is not on the screen, and
-a sleeping app holds no SIP connection, so an incoming call never reaches
-it. To make the phone ring, the SIP server has to wake the app with a push
-notification (Firebase on Android, Apple's push service on iOS) and send the
-call when the app has registered again. The Linphone apps announce their
-push token when they register; sip.linphone.org has the push backend that
-uses it, so calls from `aos-phone` registered there wake a Linphone app on
-the same service. Asterisk has no such backend of its own: through it, the
-mobile app answers only while it is open or kept running in the background
-(on Android, for example as a foreground service with battery optimisation
-turned off). In our test calls through Asterisk, the Android app was open.
+The iOS and Android apps support push notifications, so when you make a
+call from `aos-phone` to a SIP address registered in the mobile app, the
+incoming call notification will reach the phone, provided the app is
+installed and properly registered with the Linphone server.
 
 ### Calls without a server
 
@@ -139,33 +156,16 @@ SIP and RTP ports. ICE (option `STUN`) helps only the media find a way, not
 the call itself. Start the phone with a fixed `PORT` (for example 5060) so
 the other side knows where to call.
 
-## Getting started
+### Asterisk
 
-The releases of the GitHub repository carry ready archives, as `.lha` and
-`.zip`: `aos-linphone-<version>-aros-x86_64` for AROS and, from the release
-after 0.1, `aos-linphone-<version>-morphos-ppc` for MorphOS. Unpack one
-where the drawer should live, for example to `Work:`; it holds the drawer
-`aos-linphone` with its icon. Double-click `aos-phone` inside, or start it
-from a shell (see [apps/aos-phone/README.md](apps/aos-phone/README.md)).
-
-On MorphOS, a USB camera also needs the xHCI driver and `uvc.class` ported
-from AROS. They come in an archive of their own,
-`aos-linphone-drivers-<version>-morphos-ppc`, and are experimental; see
-[drivers/README.md](drivers/README.md).
-
-To build the phone yourself, cross-compile it for AROS x86_64 or MorphOS:
-
-1. Build the linphone SDK and the libraries it needs, as described in
-   [sdk/README.md](sdk/README.md).
-2. Build, install and run the phone with the help of
-   [apps/aos-phone/README.md](apps/aos-phone/README.md).
-3. Optionally build and pack everything like a release with
-   `scripts/build-release.sh`, see [ARCHITECTURE.md](ARCHITECTURE.md#packing).
-
-`aos-register` is a small console program that only registers a SIP
-account. It comes in handy for checking the network and the SIP server
-before you start the phone; see
-[apps/aos-register/README.md](apps/aos-register/README.md).
+The tests used Asterisk 20 with PJSIP. The endpoints allowed G.711
+(`allow = ulaw,alaw`) for sound and VP8 (`allow = vp8`) for video.
+Asterisk does not convert video, so both phones need a video codec the
+endpoint allows, and `aos-phone` has only VP8. Opus or G.722 can be added
+for better sound where the Asterisk build supports them; that was not
+tested. The phone in the test sat behind NAT, so its endpoint also had
+`rewrite_contact = yes`, `force_rport = yes`, `rtp_symmetric = yes` and
+`direct_media = no`.
 
 ## Technical details
 
