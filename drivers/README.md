@@ -73,7 +73,9 @@ cmake --build build-uvc
 
 `drivers/xhci` builds the same way into `pcixhci.device`.
 `scripts/build-release.sh` builds both for a MorphOS release and packs them
-into `aos-linphone-drivers-<version>-morphos-ppc.lha` and `.zip`.
+into `aos-linphone-drivers-<version>-morphos-ppc.lha` and `.zip`, stripped,
+and into `aos-linphone-drivers-<version>-morphos-ppc-debug.lha` and `.zip`
+with their symbols and debug information.
 
 ## Licence
 

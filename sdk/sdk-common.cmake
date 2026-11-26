@@ -6,9 +6,13 @@
 # encryption; no ZRTP, no database, no tools or tests.
 
 set(LINPHONESDK_PLATFORM "Desktop" CACHE STRING "")
+# Optimised code with function names and line tables (-g1), enough to read
+# crash addresses with addr2line. scripts/package.sh packs the programs as
+# built into the -debug archives and stripped into the release ones, so both
+# run the same code (-g does not change it).
 set(CMAKE_BUILD_TYPE "Release" CACHE STRING "")
-set(CMAKE_C_FLAGS_RELEASE "-O2 -DNDEBUG" CACHE STRING "")
-set(CMAKE_CXX_FLAGS_RELEASE "-O2 -DNDEBUG" CACHE STRING "")
+set(CMAKE_C_FLAGS_RELEASE "-O2 -g1 -DNDEBUG" CACHE STRING "")
+set(CMAKE_CXX_FLAGS_RELEASE "-O2 -g1 -DNDEBUG" CACHE STRING "")
 set(CMAKE_INSTALL_PREFIX "${AOS_PREFIX}" CACHE PATH "")
 set(CMAKE_PREFIX_PATH "${AOS_PREFIX}" CACHE PATH "")
 set(BUILD_SHARED_LIBS OFF CACHE BOOL "")

@@ -177,7 +177,16 @@ program may use the devices meanwhile.
 `scripts/package.sh` packs a build of `aos-phone` (and, with `-r`,
 `aos-register`) into `aos-linphone-<version>-<target>.lha` and `.zip` in
 `builds/`, which git ignores; `<target>` is `aros-x86_64` or `morphos-ppc`,
-whichever system the build was configured for. Each archive holds the
+whichever system the build was configured for. The SDK, the programs and
+the drivers build with `-O2 -g1`, the compatibility layer with `-g1`
+(function names and line tables, without types and local variables), and
+every archive comes in two variants of that one build. The release
+archives hold the programs and drivers stripped with the `strip` of the
+toolchain (`--strip-unneeded -R .comment`, as AROS and the MorphOS SDK
+strip their own), and the `-debug` archives hold them as built. Both run
+the same code, so an address from a crash of the release program can be
+looked up in the debug one, for example with `addr2line`. The libraries
+from `deps/` build without debug information. Each archive holds the
 drawer `aos-linphone` with the programs, their icons, the files they read
 from `share/`, the documentation and `SOURCE.txt`, which names the commits
 of the source as the AGPL asks, plus the drawer icon `aos-linphone.info`

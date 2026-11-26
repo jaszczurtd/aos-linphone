@@ -21,9 +21,10 @@
 # sdk/sdk-common.cmake), the prefix or the toolchain differ from the last
 # run, build-sdk is configured afresh, because CMake keeps the entries of an
 # existing cache over those of the initial cache.
-# JOBS sets the parallel job count (default 8). For AROS, libvpx and
-# libjpeg-turbo need yasm and nasm on the build host. The SDK
-# takes its version from `git describe`, which needs the upstream tags; set
+# JOBS sets the parallel job count (default 8). The SDK configuration needs
+# yasm on the build host for both systems (it asks for it whenever VP8 is
+# on); for AROS, libjpeg-turbo also needs nasm. The SDK takes its version
+# from `git describe`, which needs the upstream tags; set
 # LINPHONESDK_VERSION (for example 5.5.41) when the submodule has none.
 
 set -euo pipefail
@@ -63,7 +64,10 @@ elif ! git -C "$sdk" describe >/dev/null 2>&1; then
 fi
 
 echo "== compat"
-cmake -S "$repo" -B "$build/build-compat" -G Ninja "${tc[@]}" -DCMAKE_INSTALL_PREFIX="$prefix"
+# Debug information like the SDK (sdk/sdk-common.cmake); package.sh strips it
+# from the release archives.
+cmake -S "$repo" -B "$build/build-compat" -G Ninja "${tc[@]}" -DCMAKE_INSTALL_PREFIX="$prefix" \
+    -DCMAKE_C_FLAGS=-g1 -DCMAKE_CXX_FLAGS=-g1
 cmake --build "$build/build-compat" -j "$jobs"
 cmake --install "$build/build-compat"
 

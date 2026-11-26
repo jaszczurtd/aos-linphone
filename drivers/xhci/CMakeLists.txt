@@ -56,7 +56,7 @@ target_compile_definitions(pcixhci_device PRIVATE
 # sources carry #warning notes, keep variables and names for their debug
 # builds and pass const pointers to CopyMem(), which takes APTR on MorphOS.
 target_compile_options(pcixhci_device PRIVATE
-    -O2 -Wall -Wno-int-conversion -Wno-cpp
+    -O2 -g1 -Wall -Wno-int-conversion -Wno-cpp
     -Wno-unused-variable -Wno-unused-but-set-variable -Wno-unused-function
     -Wno-unused-const-variable -Wno-discarded-qualifiers -Wno-pointer-sign
     -include ${CMAKE_CURRENT_SOURCE_DIR}/morphos/morphos_compat.h)

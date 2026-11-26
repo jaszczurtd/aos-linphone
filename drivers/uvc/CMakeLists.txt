@@ -25,6 +25,6 @@ add_executable(uvc_class uvc.class.c uvc_vhi.c)
 set_target_properties(uvc_class PROPERTIES OUTPUT_NAME uvc.class)
 target_include_directories(uvc_class PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/include)
 # The SDK's inline tag-list macros put pointers into ULONG arrays.
-target_compile_options(uvc_class PRIVATE -O2 -Wall -Wextra -Wno-int-conversion -Wno-stringop-truncation)
+target_compile_options(uvc_class PRIVATE -O2 -g1 -Wall -Wextra -Wno-int-conversion -Wno-stringop-truncation)
 # A library: no start-up code; exec finds the class through its Resident.
 target_link_options(uvc_class PRIVATE -nostartfiles)

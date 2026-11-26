@@ -1,8 +1,9 @@
 # Builds aos-phone and aos-register for AROS x86_64 and for MorphOS and
 # packs them into the LHA and ZIP archives of scripts/package.sh, for
-# MorphOS together with the archives of the USB drivers in drivers/. Every
-# run keeps the archives as artifacts; a tag v* also publishes them as a
-# GitHub release, once both systems have built.
+# MorphOS together with the archives of the USB drivers in drivers/. Each
+# archive comes stripped (release) and as built with debug information
+# (-debug). Every run keeps the archives as artifacts; a tag v* also
+# publishes them as a GitHub release, once both systems have built.
 #
 # AROS: the port needs the AROS cross toolchain and SDK of one AROS revision
 # (AROS_REVISION): older SDKs lack parts of bsdsocket.library that the
@@ -161,8 +162,10 @@ jobs:
       - name: Install the host tools
         run: |
           sudo apt-get update
+          # yasm: the linphone-sdk configuration asks for it whenever VP8 is
+          # on, although only the AROS build of libvpx assembles with it.
           sudo apt-get install -y --no-install-recommends \
-            build-essential curl cmake ninja-build libpng-dev zlib1g-dev jlha-utils zip
+            build-essential curl cmake ninja-build libpng-dev zlib1g-dev yasm jlha-utils zip
           sudo mkdir -p "$MORPHOS"
           sudo chown "$(id -u):$(id -g)" "$MORPHOS"
 

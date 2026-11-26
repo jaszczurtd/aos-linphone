@@ -45,6 +45,9 @@ after 0.1, `aos-linphone-<version>-morphos-ppc` for MorphOS. Unpack one
 where the drawer should live, for example to `Work:`; it holds the drawer
 `aos-linphone` with its icon. Double-click `aos-phone` inside, or start it
 from a shell (see [apps/aos-phone/README.md](apps/aos-phone/README.md)).
+From version 0.3 on, each archive also comes as `-debug`: the same
+programs with their symbols, function names and line numbers, several
+times larger, for reading the addresses in a crash report.
 
 On MorphOS, a USB camera also needs the xHCI driver and `uvc.class` ported
 from AROS. They come in an archive of their own,

@@ -15,9 +15,10 @@ scripts/build-sdk.sh /path/to/toolchain /path/to/prefix
 The script needs a cross toolchain: for AROS the directory that holds
 `x86_64-aros-gcc`, for MorphOS the one that holds `bin/ppc-morphos-gcc`
 (`<work dir>/pkg/gg` of `scripts/build-morphos-toolchain.sh`); the system
-follows from it. It also needs CMake 3.22 or later, Ninja, git,
-bash and make, and for AROS the assemblers yasm (for libvpx) and nasm (for
-libjpeg-turbo). It runs four steps, each in its own build directory under
+follows from it. It also needs CMake 3.22 or later, Ninja, git, bash,
+make and yasm: the SDK configuration asks for yasm whenever VP8 is on,
+although only the AROS build of libvpx assembles with it. For AROS,
+libjpeg-turbo also needs nasm. It runs four steps, each in its own build directory under
 the repository root (or under the directory given as a third argument):
 
 1. `build-compat`: the compatibility layer, installed into the prefix
