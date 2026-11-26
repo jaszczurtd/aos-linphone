@@ -1,0 +1,41 @@
+diff --git a/belle-sip/src/belle_sip_resolver.c b/belle-sip/src/belle_sip_resolver.c
+index 9ce709e66c..ba02a208e6 100644
+--- a/belle-sip/src/belle_sip_resolver.c
++++ b/belle-sip/src/belle_sip_resolver.c
+@@ -1329,6 +1329,19 @@ static int resolver_process_mdns_browse_result(belle_sip_mdns_source_t *source,
+ }
+ #endif
+ 
++#if defined(USE_GETADDRINFO_FALLBACK)
++/* Whether conf names a DNS server: dns.c puts 0.0.0.0, meaning this host, in place of a missing one, for
++ * example when resolv.conf has no nameserver line. */
++static int _resolver_has_nameserver(const struct dns_resolv_conf *conf) {
++	const struct sockaddr *ns;
++	if (conf == NULL) return FALSE;
++	ns = (const struct sockaddr *)&conf->nameserver[0];
++	if (ns->sa_family == AF_INET) return ((const struct sockaddr_in *)ns)->sin_addr.s_addr != htonl(INADDR_ANY);
++	if (ns->sa_family == AF_INET6) return !IN6_IS_ADDR_UNSPECIFIED(&((const struct sockaddr_in6 *)ns)->sin6_addr);
++	return FALSE;
++}
++#endif
++
+ static int _resolver_start_query(belle_sip_simple_resolver_context_t *ctx) {
+ 	if (!ctx->name) return -1;
+ 	if (ctx->base.stack->custom_dns_entries &&
+@@ -1443,6 +1456,16 @@ static int _resolver_start_query(belle_sip_simple_resolver_context_t *ctx) {
+ 		struct dns_resolv_conf *conf;
+ 
+ 		conf = resconf(ctx);
++#if defined(USE_GETADDRINFO_FALLBACK)
++		if (!_resolver_has_nameserver(conf) && (ctx->type == DNS_T_A || ctx->type == DNS_T_AAAA)) {
++			/* No DNS server is known to us, but the system resolver may know some (MorphOS has no API that
++			 * lists the servers it got from DHCP): resolve the address with getaddrinfo() alone. */
++			belle_sip_message("%s: no DNS server known, resolving [%s] with getaddrinfo()", __FUNCTION__, ctx->name);
++			ctx->not_using_dns_socket = TRUE;
++			_resolver_getaddrinfo_start(ctx);
++			return 0;
++		}
++#endif
+ 		if (conf) {
+ 			conf->options.recurse = 0;
+ 			conf->options.timeout = 2;

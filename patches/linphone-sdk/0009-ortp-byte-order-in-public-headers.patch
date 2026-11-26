@@ -1,0 +1,19 @@
+diff --git a/ortp/include/ortp/port.h b/ortp/include/ortp/port.h
+index 04e77f6b1e..0847201c58 100644
+--- a/ortp/include/ortp/port.h
++++ b/ortp/include/ortp/port.h
+@@ -32,6 +32,14 @@
+ #endif // _MSC_VER
+ #endif // ORTP_DEPRECATED
+ 
++/* The public headers lay out the RTP and RTCP bit fields by byte order.
++ * ORTP_BIGENDIAN comes from the private ortp-config.h, which code using oRTP
++ * does not include, so take the byte order from the compiler as well. */
++#if !defined(ORTP_BIGENDIAN) && defined(__BYTE_ORDER__) && defined(__ORDER_BIG_ENDIAN__) &&                         \
++    __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
++#define ORTP_BIGENDIAN
++#endif
++
+ #if __APPLE__
+ #include "TargetConditionals.h"
+ #endif

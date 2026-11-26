@@ -1,0 +1,31 @@
+diff --git a/mediastreamer2/src/audiofilters/msfilerec.c b/mediastreamer2/src/audiofilters/msfilerec.c
+index 3da24ade27..621f83e483 100644
+--- a/mediastreamer2/src/audiofilters/msfilerec.c
++++ b/mediastreamer2/src/audiofilters/msfilerec.c
+@@ -62,6 +62,17 @@ static void rec_init(MSFilter *f) {
+ 
+ static void _rec_close(RecState *s);
+ 
++/* Incoming samples are in host byte order, except L16 (s->swap), which is in
++ * network order. A WAV file holds little-endian samples, a raw file the host
++ * order, so a big-endian host swaps PCM for WAV files and leaves L16 as it is. */
++static bool_t rec_swap_needed(const RecState *s) {
++#ifdef WORDS_BIGENDIAN
++	return !s->swap && s->is_wav;
++#else
++	return s->swap;
++#endif
++}
++
+ static void swap_bytes(unsigned char *bytes, int len) {
+ 	int i;
+ 	unsigned char tmp;
+@@ -86,7 +97,7 @@ static void rec_process(MSFilter *f) {
+ 				len = s->max_size - s->size;
+ 				max_size_reached = 1;
+ 			}
+-			if (s->swap) {
++			if (rec_swap_needed(s)) {
+ 				if (dblk_ref_value(m->b_datap) != 1) {
+ 					mblk_t *old = m;
+ 					m = copymsg(m);

@@ -1,5 +1,5 @@
 diff --git a/liblinphone/src/core/paths/paths.cpp b/liblinphone/src/core/paths/paths.cpp
-index 5ccf537468..7fa5556ab2 100644
+index 5ccf537468..e57d99bfd5 100644
 --- a/liblinphone/src/core/paths/paths.cpp
 +++ b/liblinphone/src/core/paths/paths.cpp
 @@ -27,7 +27,7 @@
@@ -7,7 +7,7 @@ index 5ccf537468..7fa5556ab2 100644
  #elif defined(_WIN32)
  #include "paths-windows.h"
 -#elif defined(__linux__)
-+#elif defined(__linux__) || defined(__AROS__)
++#elif defined(__linux__) || defined(__AROS__) || defined(__MORPHOS__)
  #include "paths-linux.h"
  #else
  #error "Unsupported system."

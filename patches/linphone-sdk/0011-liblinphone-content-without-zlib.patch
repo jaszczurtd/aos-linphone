@@ -1,0 +1,24 @@
+diff --git a/liblinphone/src/content/content.cpp b/liblinphone/src/content/content.cpp
+index a702164808..b3758395dd 100644
+--- a/liblinphone/src/content/content.cpp
++++ b/liblinphone/src/content/content.cpp
+@@ -553,7 +553,8 @@ bool Content::deflateBody(void) {
+ 	deflateEnd(&zlibStream);
+ 	return true;
+ #else  // HAVE_ZLIB
+-	lError() << "Cannot deflate content as zlib support is missing" return false;
++	lError() << "Cannot deflate content as zlib support is missing";
++	return false;
+ #endif // HAVE_ZLIB
+ }
+ 
+@@ -608,7 +609,8 @@ bool Content::inflateBody(void) {
+ 	setContentEncoding("");
+ 	return true;
+ #else  // HAVE_ZLIB
+-	lError() << "Cannot inflate content as zlib support is missing" return false;
++	lError() << "Cannot inflate content as zlib support is missing";
++	return false;
+ #endif // HAVE_ZLIB
+ }
+ LINPHONE_END_NAMESPACE

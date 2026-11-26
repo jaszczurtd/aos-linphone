@@ -1,0 +1,13 @@
+diff --git a/mediastreamer2/src/voip/audiostream.c b/mediastreamer2/src/voip/audiostream.c
+index 8f6c16a47e..d5136dd1b4 100644
+--- a/mediastreamer2/src/voip/audiostream.c
++++ b/mediastreamer2/src/voip/audiostream.c
+@@ -2115,7 +2115,7 @@ static MSFilter *get_recorder(AudioStream *stream) {
+  * Workaround by deleting the audio-only file.
+  */
+ static void audio_stream_workaround_mkv_crash(AudioStream *st) {
+-	if (st->videostream && st->av_recorder.recorder->desc->id == MS_MKV_RECORDER_ID &&
++	if (st->videostream && st->av_recorder.recorder != NULL && st->av_recorder.recorder->desc->id == MS_MKV_RECORDER_ID &&
+ 	    bctbx_file_exist(st->recorder_file) == 0) {
+ 		MSFilter *f = ms_factory_create_filter(st->ms.factory, MS_MKV_PLAYER_ID);
+ 		MSPinFormat pinfmt = {0}; /* video pin is zero */
