@@ -1,9 +1,10 @@
 # Ports to other Amiga systems
 
-aos-linphone runs on AROS x86_64 today. The aim is every Amiga system:
-MorphOS, AmigaOS 3.x on 68k processors and AmigaOS 4. This document
-collects what we know about those ports as of November 2026: what carries
-over from AROS, what blocks each system, and the order we plan to take.
+aos-linphone runs on AROS x86_64 and on MorphOS. The aim is every Amiga
+system, so AmigaOS 3.x on 68k processors and AmigaOS 4 come next. This
+document describes the state of the MorphOS port and collects what we know
+about the others as of November 2026: what carries over from AROS, what
+blocks each system, and the order we plan to take.
 Statements marked *(checked)* were verified in code, headers or a test run;
 *(estimate)* marks our own judgement.
 
@@ -17,9 +18,9 @@ Statements marked *(checked)* were verified in code, headers or a test run;
 | USB stack | Poseidon, like AROS | Poseidon (commercial) on USB cards | its own stack, not Poseidon |
 | USB camera | AROS `uvc.class` and xHCI driver ported; pictures in QEMU, slowly *(checked)* | only real hardware, MJPEG too costly | `usb2video.device` of the community `usb2` stack |
 | Emulation | QEMU `pegasos2` boots MorphOS 3.21 *(checked)* | WinUAE, FS-UAE, Amiberry (JIT) | QEMU `pegasos2`, `amigaone`, `sam460ex` |
-| Verdict | doable; the network layer is the main work | doable for JIT emulators and fast accelerators, not for a real 68060 | doable, camera through `usb2` only |
+| Verdict | runs in QEMU; real hardware untested | doable for JIT emulators and fast accelerators, not for a real 68060 | doable, camera through `usb2` only |
 
-Planned order: MorphOS first, then AmigaOS 3.x for emulators and fast
+Order: MorphOS first (running), then AmigaOS 3.x for emulators and fast
 accelerators, then AmigaOS 4.
 
 ## Why AROS was the easy start
@@ -52,17 +53,18 @@ buffers for sound and video, a machine needs some 64 MB of free memory.
 ### Big-endian
 
 Most of the stack handles big-endian processors, but three places need
-fixing *(checked in the sources)*:
+care *(checked in the sources)*:
 
 - oRTP defines `ORTP_BIGENDIAN` only in its private config header, while the
   public `ortp/rtp.h` lays out the bit fields of the RTP header from it, and
   mediastreamer2 reads those fields (marker bit, payload type). On a
-  big-endian machine they would be read wrongly, breaking video frames. The
-  SDK has to be built with `ORTP_BIGENDIAN` for every component.
+  big-endian machine they are read wrongly, which breaks video frames.
+  Patch 0009 takes the byte order from the compiler in the public headers.
 - mediastreamer2's WAV recorder swaps bytes only for L16 payloads, so call
-  recordings would have the wrong byte order. It needs a patch.
+  recordings get the wrong byte order. Patch 0010 fixes it.
 - belle-sip's DNS code picks the layout of the DNS header bit fields from
-  `BYTE_ORDER`; the compatibility layer has to define it.
+  `BYTE_ORDER`. The MorphOS headers define it (`<machine/endian.h>`, through
+  `<sys/types.h>`); on other systems the compatibility layer may have to.
 
 libvpx detects big-endian in its configure script, mbedtls takes the order
 from `__BYTE_ORDER__`, and the libyuv paths we use write byte by byte. Our
@@ -70,23 +72,31 @@ own device code works unchanged: AHI takes 16-bit samples in processor
 order, and the picture paths work on bytes. Raw test sound files have to be
 prepared in big-endian order (`s16be`).
 
-The first step for all three ports is therefore a run of the stack on big-
-endian Linux (PowerPC in QEMU), without any Amiga API: two `linphonec`
-instances calling each other with sound and VP8 video, plus a recording.
+A run of the stack on big-endian Linux (PowerPC in QEMU), without any Amiga
+API, confirmed the first two *(checked)*: without the patches, `linphonec`
+on PowerPC drops the video packets of a call with an `x86_64` one as
+packets of a wrong payload type, and with patch 0009 alone its recordings
+have their bytes swapped. With both patches the two call each other with
+sound and VP8 video, and the recordings match what the other side sent.
 
-### Code that has to change
+### Code each port changes
 
-- `compat/` is AROS-only today (`aos_compat.h` stops with `#error` on other
-  systems). It has to split into a common part and one backend per system:
+The MorphOS port has done each of these; the next ports follow the same
+pattern.
+
+- `compat/` has a common part and one backend per system
+  (`src/net/<system>/`, `src/misc/<system>/`, `include/aos/compat_<system>.h`):
   socket calls, name resolution, `close`/`read`/`write` on sockets where the
   C library does not pass them on, and, on 68k, `clock_gettime` and an
   entropy source.
-- The GUI uses AROS macros for hooks and dispatchers; the `SDI_hook.h`
-  macros, which AROS has too, cover all systems. The MUI classes it uses
-  exist from MUI 3.8 on.
+- The GUI uses the `SDI_hook.h` macros for hooks and dispatchers
+  (`apps/aos-phone/sdi/`), which cover all systems, and `mui_compat.h` for
+  the few differences between Zune and MUI. The MUI classes it uses exist
+  from MUI 3.8 on.
 - The patches for bctoolbox and liblinphone that name AROS need the macros
   of the other systems.
-- `vhi_camera.c` uses AROS's VHI extensions for UVC modes.
+- `vhi_camera.c` uses AROS's VHI extensions for UVC modes; on MorphOS it
+  compiles against the headers of the port in `drivers/uvc/`.
 - Each system needs a CMake toolchain file. libvpx and libjpeg-turbo build
   without x86 assembly, and systems without an FPU need fixed-point codecs.
 
@@ -334,17 +344,16 @@ C; CIF at 15 pictures per second is plausible *(estimate)*. The A1222
 
 ## Plan
 
-1. Big-endian check of the linphone stack on Linux PowerPC.
-2. Split `compat/` into a common part and an AROS backend without changing
-   behaviour; GUI on `SDI_hook.h`.
-3. MorphOS: a first trial build and run in the MorphOS virtual machine to
-   see what breaks, a test of sockets shared between tasks, then the network
-   backend, the SDK, the phone, and the port of `uvc.class`.
-4. AmigaOS 3.x for JIT emulators and fast accelerators: self-built GCC with
+Done: the big-endian check on Linux PowerPC, the split of `compat/`, the
+GUI on `SDI_hook.h`, and the MorphOS port with its network backend, SDK,
+phone, `uvc.class` and xHCI driver. On MorphOS, sound cards and a USB
+camera on real hardware remain untested. Next:
+
+1. AmigaOS 3.x for JIT emulators and fast accelerators: self-built GCC with
    threads and newlib, a Roadshow network backend, codec measurements; later,
    optionally, the media computation on the PowerPC of WarpOS or PowerUP
    boards.
-5. AmigaOS 4: adtools with clib4, a network backend on its socket interface,
+2. AmigaOS 4: adtools with clib4, a network backend on its socket interface,
    camera through `usb2video.device`.
 
 ## Sources

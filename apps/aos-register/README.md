@@ -1,8 +1,8 @@
 # aos-register
 
-A console program that registers a SIP account from AROS with liblinphone,
-then unregisters it. It checks that the SDK built for AROS can talk to a SIP
-server over the AROS network stack.
+A console program that registers a SIP account from AROS or MorphOS with
+liblinphone, then unregisters it. It checks that the SDK can talk to a SIP
+server over the network stack of the system.
 
 ```
 aos-register <identity> <password> [<proxy>] [<seconds>]
@@ -15,8 +15,8 @@ aos-register <identity> <password> [<proxy>] [<seconds>]
 
 The program prints each registration state and ends with `result: PASS`
 and exit code 0 when the account registered and unregistered. It returns 10
-when a step failed or timed out, and 20 on bad arguments or when
-AROSTCP is not running.
+when a step failed or timed out, and 20 on bad arguments or when the
+network stack (AROSTCP on AROS) is not running.
 
 ## Building
 
@@ -30,6 +30,10 @@ cmake -S apps/aos-register -B build-register -G Ninja \
       -DAROS_TOOLCHAIN_DIR=<toolchain>
 cmake --build build-register
 ```
+
+For MorphOS: `-C sdk/morphos-sdk.cmake`,
+`-DCMAKE_TOOLCHAIN_FILE=<repo>/cmake/morphos-ppc.cmake` and
+`-DMORPHOS_TOOLCHAIN_DIR=<toolchain>`.
 
 ## Running
 
@@ -48,7 +52,7 @@ build-tools/sip-registrar -a <address> -x
 It serves the account `alice` with password `secret` in the realm
 `aos-test`, challenges every REGISTER with an MD5 digest and prints one line
 per event. With `-x` it exits with status 0 as soon as the account has
-registered and unregistered. Then, on AROS:
+registered and unregistered. Then, on AROS or MorphOS:
 
 ```
 aos-register sip:alice@<address> secret

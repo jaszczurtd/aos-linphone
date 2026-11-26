@@ -1,4 +1,8 @@
-# Patches for linphone-sdk
+# Patches
+
+`linphone-sdk/` holds the patches for the linphone SDK, described first;
+`ppc-morphos-gcc/` holds the patches for the GCC of the MorphOS cross
+toolchain, described in [GCC for MorphOS](#gcc-for-morphos).
 
 `third_party/linphone-sdk` is pinned to an upstream revision and stays
 unmodified in git. The few source changes the AROS and MorphOS builds need
@@ -79,3 +83,16 @@ submodules, so `git -C third_party/linphone-sdk diff` shows all of them.
 | `0011-liblinphone-content-without-zlib.patch` | Without zlib, `Content::deflateBody()` and `Content::inflateBody()` each have a statement without its semicolon and do not compile. The patch adds them. |
 | `0012-belle-sip-getaddrinfo-without-dns-servers.patch` | belle-sip resolves names with its own DNS resolver, which needs the addresses of DNS servers. The MorphOS network stack does not report the servers it got from DHCP, so without servers set by hand belle-sip asks 127.0.0.1 and fails. In builds with `USE_GETADDRINFO_FALLBACK` (the MorphOS build sets it), the patch resolves A and AAAA records with `getaddrinfo()` alone when no DNS server is known; SRV and NAPTR records still need one. Builds without that macro do not change. |
 | `0013-mediastreamer2-wav-record-in-video-call.patch` | Recording a call to a WAV file in a build without the Matroska filters crashes as soon as the call has video: a workaround for MKV files reads the descriptor of the multimedia recorder, which such a build never creates. The patch checks that recorder for NULL first. Audio-only calls and builds with MKV do not change. |
+
+## GCC for MorphOS
+
+`patches/ppc-morphos-gcc/` holds fixes for the GCC of the MorphOS cross
+toolchain, which `scripts/build-morphos-toolchain.sh` builds from pkgsrc.
+The script gives them to pkgsrc as local patches of `cross/ppc-morphos-gcc`,
+applied with `patch -p0` from the root of the GCC sources after the MorphOS
+patches of the package, and rebuilds GCC when they change. `apply.sh` does
+not touch them.
+
+| Patch | Why |
+|---|---|
+| `0001-gthr-create-reads-pid-after-thread-ran.patch` | The MorphOS thread code of libgcc (`gthr-morphos.c`) reads the id of a new thread only after the thread may have run to its end and freed its task. The id then stays unset, and `std::thread::join()` on such a thread fails with `EINVAL`. The patch reads the id while the new thread cannot run yet. |

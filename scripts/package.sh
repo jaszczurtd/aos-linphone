@@ -1,6 +1,8 @@
 #!/bin/bash
-# Packs the AROS build of the phone into an LHA and a ZIP archive, ready to
-# unpack on AROS. Both hold the drawer aos-linphone and its icon:
+# Packs a build of the phone into an LHA and a ZIP archive, ready to unpack
+# on the system it was built for (AROS x86_64 or MorphOS; the script reads
+# it from the build directory). Both hold the drawer aos-linphone and its
+# icon:
 #
 #   aos-linphone.info                   the drawer icon
 #   aos-linphone/aos-phone(.info)       the phone and its icon
@@ -10,8 +12,14 @@
 #   aos-linphone/*.md, SOURCE.txt       documentation, licence, where the
 #                                       source of this build is
 #
-# usage: scripts/package.sh [-o <out dir>] [-r <aos-register>] [--no-lha]
-#                           <phone build dir> <prefix>
+# With -d, a second pair of archives holds the drawer aos-linphone-drivers
+# with the given drivers under the paths they take below SYS: (on MorphOS
+# *.class in MorphOS/Classes/USB, where AddUSBClasses looks for classes,
+# and *.device in Devs/USBHardware), drivers/README.md, their licence and
+# SOURCE.txt.
+#
+# usage: scripts/package.sh [-o <out dir>] [-r <aos-register>] [-d <driver>]...
+#                           [--no-lha] <phone build dir> <prefix>
 #
 #   phone build dir  the build directory of apps/aos-phone, holding
 #                    aos-phone, aos-phone-cmd, aos-phone.info and
@@ -19,33 +27,39 @@
 #   prefix           the SDK prefix of scripts/build-sdk.sh
 #   -o <out dir>     where the archives go, default <repository>/builds
 #   -r <file>        also pack this aos-register executable
-#   --no-lha         make the ZIP archive only
+#   -d <file>        pack this driver (uvc.class, pcixhci.device) into the
+#                    drivers archives; repeat for each driver
+#   --no-lha         make the ZIP archives only
 #
-# The archives are named aos-linphone-<version>-aros-x86_64.lha and .zip.
-# <version> is VERSION when set, else `git describe` of the release tags
-# without the v: 0.1 on the commit tagged v0.1, 0.1-3-g1234abc three commits
-# later, the short commit before the first tag; -dirty is added when files
-# other than the submodule differ from the last commit. A commit tagged v*
-# must carry that version in cmake/version.cmake, else the script stops.
-# The LHA archive needs an lha archiver: LHA names it, else lha (LHa for
-# UNIX) or jlha (jlha-utils) from the PATH. The source URL in SOURCE.txt comes from the remote origin, or from
-# AOS_SOURCE_URL when set.
+# The archives are named aos-linphone-<version>-<target>.lha and .zip, the
+# drivers aos-linphone-drivers-<version>-<target>.lha and .zip, with
+# <target> aros-x86_64 or morphos-ppc. <version> is VERSION when set, else
+# `git describe` of the release tags without the v: 0.1 on the commit
+# tagged v0.1, 0.1-3-g1234abc three commits later, the short commit before
+# the first tag; -dirty is added when files other than the submodule differ
+# from the last commit. A commit tagged v* must carry that version in
+# cmake/version.cmake, else the script stops. The LHA archive needs an lha
+# archiver: LHA names it, else lha (LHa for UNIX) or jlha (jlha-utils) from
+# the PATH. The source URL in SOURCE.txt comes from the remote origin, or
+# from AOS_SOURCE_URL when set.
 
 set -euo pipefail
 
 usage() {
-    echo "usage: $0 [-o <out dir>] [-r <aos-register>] [--no-lha] <phone build dir> <prefix>" >&2
+    echo "usage: $0 [-o <out dir>] [-r <aos-register>] [-d <driver>]... [--no-lha] <phone build dir> <prefix>" >&2
     exit 2
 }
 
 repo=$(cd "$(dirname "$0")/.." && pwd)
 out="$repo/builds"
 register=""
+drivers=()
 make_lha=1
 while [ $# -gt 0 ]; do
     case "$1" in
     -o) [ $# -ge 2 ] || usage; out=$2; shift 2 ;;
     -r) [ $# -ge 2 ] || usage; register=$2; shift 2 ;;
+    -d) [ $# -ge 2 ] || usage; drivers+=("$2"); shift 2 ;;
     --no-lha) make_lha=0; shift ;;
     -*) usage ;;
     *) break ;;
@@ -55,6 +69,14 @@ done
 build=$(cd "$1" && pwd)
 prefix=$(cd "$2" && pwd)
 sounds="$repo/third_party/linphone-sdk/liblinphone/share"
+
+# The system the phone was configured for, as CMake recorded it.
+system=$(sed -n 's/^set(CMAKE_SYSTEM_NAME "\(.*\)")$/\1/p' "$build"/CMakeFiles/*/CMakeSystem.cmake 2>/dev/null | head -1 || true)
+case "$system" in
+AROS) target=aros-x86_64; system_label="AROS x86_64"; class_dir=Classes/USB ;;
+MorphOS) target=morphos-ppc; system_label="MorphOS (PowerPC)"; class_dir=MorphOS/Classes/USB ;;
+*) echo "error: $build is no AROS or MorphOS build of aos-phone" >&2; exit 1 ;;
+esac
 
 lha=${LHA:-}
 if [ -z "$lha" ]; then
@@ -74,6 +96,13 @@ command -v zip >/dev/null 2>&1 || { echo "error: zip not found" >&2; exit 1; }
 files=("$build/aos-phone" "$build/aos-phone-cmd" "$build/aos-phone.info" "$build/aos-linphone.info"
        "$sounds/rings/oldphone-mono.wav" "$sounds/ringback.wav" "$prefix/share/images/nowebcamCIF.jpg")
 [ -z "$register" ] || files+=("$register")
+for driver in "${drivers[@]}"; do
+    case "$driver" in
+    *.class | *.device) ;;
+    *) echo "error: $driver is neither a .class nor a .device" >&2; exit 1 ;;
+    esac
+    files+=("$driver")
+done
 for f in "${files[@]}"; do
     [ -f "$f" ] || { echo "error: $f missing" >&2; exit 1; }
 done
@@ -106,10 +135,26 @@ url=${url%.git}
 case "$url" in
 git@*:*) url=${url#git@}; url="https://${url/://}" ;;
 esac
-name="aos-linphone-$version-aros-x86_64"
 
 stage=$(mktemp -d)
 trap 'rm -rf "$stage"' EXIT
+mkdir -p "$out"
+out=$(cd "$out" && pwd)
+
+# archive <name> <entry>...: packs the entries of the staging directory into
+# <name>.zip and <name>.lha in the output directory.
+archive() {
+    local name=$1
+    shift
+    rm -f "$out/$name.zip" "$out/$name.lha"
+    (cd "$stage" && zip -q -r -X "$out/$name.zip" "$@")
+    echo "$out/$name.zip"
+    if [ $make_lha -eq 1 ]; then
+        (cd "$stage" && "$lha" a "$out/$name.lha" "$@" >/dev/null)
+        echo "$out/$name.lha"
+    fi
+}
+
 d="$stage/aos-linphone"
 mkdir -p "$d/share/belr/grammars" "$d/share/sounds/linphone/rings" "$d/share/images"
 cp "$build/aos-phone" "$build/aos-phone-cmd" "$build/aos-phone.info" "$d/"
@@ -123,7 +168,7 @@ cp "$repo/README.md" "$repo/LICENCE.md" "$d/"
 cp "$repo/apps/aos-phone/README.md" "$d/aos-phone.md"
 [ -z "$register" ] || cp "$repo/apps/aos-register/README.md" "$d/aos-register.md"
 cat > "$d/SOURCE.txt" <<EOF
-aos-linphone $version for AROS x86_64
+aos-linphone $version for $system_label
 
 This is free software under the GNU Affero General Public License, version 3
 or later; see LICENCE.md. The complete source of this build:
@@ -136,13 +181,31 @@ or later; see LICENCE.md. The complete source of this build:
 
 sdk/README.md in the aos-linphone source tells how to build it.
 EOF
+archive "aos-linphone-$version-$target" aos-linphone.info aos-linphone
 
-mkdir -p "$out"
-out=$(cd "$out" && pwd)
-rm -f "$out/$name.zip" "$out/$name.lha"
-(cd "$stage" && zip -q -r -X "$out/$name.zip" aos-linphone.info aos-linphone)
-echo "$out/$name.zip"
-if [ $make_lha -eq 1 ]; then
-    (cd "$stage" && "$lha" a "$out/$name.lha" aos-linphone.info aos-linphone >/dev/null)
-    echo "$out/$name.lha"
+if [ ${#drivers[@]} -gt 0 ]; then
+    d="$stage/aos-linphone-drivers"
+    mkdir -p "$d"
+    for driver in "${drivers[@]}"; do
+        case "$driver" in
+        *.class) dir="$d/$class_dir" ;;
+        *.device) dir="$d/Devs/USBHardware" ;;
+        esac
+        mkdir -p "$dir"
+        cp "$driver" "$dir/"
+    done
+    cp "$repo/drivers/README.md" "$d/README.md"
+    cp "$repo/drivers/uvc/LICENSE" "$d/LICENSE"
+    cat > "$d/SOURCE.txt" <<EOF
+aos-linphone-drivers $version for $system_label
+
+USB drivers ported from AROS, under the AROS Public License, version 1.1;
+see LICENSE. The source of this build is in drivers/ of aos-linphone:
+
+  aos-linphone   ${url:-(no source URL known)}
+                 commit $commit
+
+README.md tells how to build them and how to install them.
+EOF
+    archive "aos-linphone-drivers-$version-$target" aos-linphone-drivers
 fi

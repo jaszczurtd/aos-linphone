@@ -9,8 +9,8 @@
 #         -DMORPHOS_TOOLCHAIN_DIR=<directory with bin/ppc-morphos-gcc>
 #   cmake --build build-xhci
 #
-# The result, build-xhci/pcixhci.device, goes to SYS:Devs/USBHardware and
-# is added in Poseidon's hardware list.
+# The result, build-xhci/pcixhci.device, goes to SYS:Devs/USBHardware, and
+# AddUSBHardware hands it to Poseidon (see drivers/README.md).
 #
 # Licensed under the AROS Public License version 1.1, like the AROS driver
 # it comes from (see LICENCE.md of the repository).

@@ -1,14 +1,25 @@
-# Builds aos-phone and aos-register for AROS x86_64 and packs them into the
-# LHA and ZIP archives of scripts/package.sh. Every run keeps the archives
-# as an artifact; a tag v* also publishes them as a GitHub release.
+# Builds aos-phone and aos-register for AROS x86_64 and for MorphOS and
+# packs them into the LHA and ZIP archives of scripts/package.sh, for
+# MorphOS together with the archives of the USB drivers in drivers/. Every
+# run keeps the archives as artifacts; a tag v* also publishes them as a
+# GitHub release, once both systems have built.
 #
-# The port needs the AROS cross toolchain and SDK of one AROS revision
+# AROS: the port needs the AROS cross toolchain and SDK of one AROS revision
 # (AROS_REVISION): older SDKs lack parts of bsdsocket.library that the
 # compatibility layer uses. The first run builds them from the AROS sources,
 # as the AROS project's own CI does (toolchain, then the core system), which
 # takes about half an hour; the result is cached under /opt/aros, the path
-# the toolchain was built for. The linphone SDK is cached the same way until
-# the submodule or the files that build it change.
+# the toolchain was built for.
+#
+# MorphOS: scripts/build-morphos-toolchain.sh builds GCC 15.2 with the
+# MorphOS SDK 3.20 from pkgsrc into /opt/morphos/pkg, cached until the
+# pkgsrc commit, the SDK archive or the GCC patches change. The SDK may not
+# be distributed separately: it stays in that cache, and the archives hold
+# only the programs. The icons come from the AROS host tool ilbmtoicon,
+# built from its one source file of AROS_REVISION.
+#
+# The linphone SDK of each system is cached until the submodule or the files
+# that build it change.
 name: package
 
 on:
@@ -22,6 +33,7 @@ permissions:
 env:
   AROS_REVISION: 9c39558be3505ce5d09dd5813371350f7943eefd
   AROS: /opt/aros
+  MORPHOS: /opt/morphos
   # The shallow submodule has no upstream tags for `git describe`.
   LINPHONESDK_VERSION: 5.5.41
 
@@ -39,7 +51,7 @@ jobs:
           git submodule update --init --depth 1 third_party/linphone-sdk
           # One key for restoring and saving, taken before anything is built.
           sdk_commit=$(git rev-parse HEAD:third_party/linphone-sdk)
-          echo "SDK_KEY=sdk-$AROS_REVISION-$sdk_commit-${{ hashFiles('compat/**', 'deps/**', 'patches/**', 'sdk/**', 'cmake/**', 'scripts/build-sdk.sh') }}" >> "$GITHUB_ENV"
+          echo "SDK_KEY=sdk-$AROS_REVISION-$sdk_commit-${{ hashFiles('compat/**', 'deps/**', 'patches/linphone-sdk/**', 'sdk/**', 'cmake/**', 'scripts/build-sdk.sh', 'scripts/toolchain-args.sh') }}" >> "$GITHUB_ENV"
 
       - name: Install the host tools
         run: |
@@ -127,8 +139,100 @@ jobs:
           path: build-ci/out/*
           if-no-files-found: error
 
+  morphos-ppc:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # tags, for the version in the archive names
+
+      - name: Fetch the linphone-sdk submodule
+        run: |
+          git submodule update --init --depth 1 third_party/linphone-sdk
+          # The toolchain follows from the pkgsrc commit and the SDK archive
+          # that build-morphos-toolchain.sh pins, and from the GCC patches.
+          toolchain=$( (grep -E '^(PKGSRC_COMMIT|SDK_DISTFILE)=' scripts/build-morphos-toolchain.sh
+                        sha256sum patches/ppc-morphos-gcc/*.patch) | sha256sum | cut -c1-16)
+          echo "TOOLCHAIN_KEY=morphos-toolchain-$toolchain" >> "$GITHUB_ENV"
+          sdk_commit=$(git rev-parse HEAD:third_party/linphone-sdk)
+          echo "SDK_KEY=sdk-morphos-$toolchain-$sdk_commit-${{ hashFiles('compat/**', 'deps/**', 'patches/linphone-sdk/**', 'sdk/**', 'cmake/**', 'scripts/build-sdk.sh', 'scripts/toolchain-args.sh') }}" >> "$GITHUB_ENV"
+
+      - name: Install the host tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential curl cmake ninja-build libpng-dev zlib1g-dev jlha-utils zip
+          sudo mkdir -p "$MORPHOS"
+          sudo chown "$(id -u):$(id -g)" "$MORPHOS"
+
+      - name: Restore the MorphOS toolchain
+        id: toolchain
+        uses: actions/cache/restore@v4
+        with:
+          path: /opt/morphos/pkg
+          key: ${{ env.TOOLCHAIN_KEY }}
+
+      - name: Build the MorphOS toolchain
+        if: steps.toolchain.outputs.cache-hit != 'true'
+        run: scripts/build-morphos-toolchain.sh "$MORPHOS"
+
+      - name: Save the MorphOS toolchain
+        if: steps.toolchain.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: /opt/morphos/pkg
+          key: ${{ env.TOOLCHAIN_KEY }}
+
+      - name: Build ilbmtoicon
+        run: |
+          mkdir -p build-ci/tools
+          curl -fsSL -o build-ci/tools/ilbmtoicon.c \
+            "https://raw.githubusercontent.com/aros-development-team/AROS/$AROS_REVISION/tools/ilbmtoicon/ilbmtoicon.c"
+          gcc -O2 -o build-ci/tools/ilbmtoicon build-ci/tools/ilbmtoicon.c -lpng -lz
+
+      - name: Restore the linphone SDK
+        id: sdk
+        uses: actions/cache/restore@v4
+        with:
+          path: build-ci/prefix
+          key: ${{ env.SDK_KEY }}
+
+      - name: Build the linphone SDK
+        if: steps.sdk.outputs.cache-hit != 'true'
+        run: scripts/build-sdk.sh "$MORPHOS/pkg/gg" build-ci/prefix build-ci
+
+      - name: Save the linphone SDK
+        if: steps.sdk.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: build-ci/prefix
+          key: ${{ env.SDK_KEY }}
+
+      - name: Build the programs and the drivers and pack them
+        env:
+          ILBMTOICON: ${{ github.workspace }}/build-ci/tools/ilbmtoicon
+          OUT: build-ci/out
+        run: scripts/build-release.sh "$MORPHOS/pkg/gg" build-ci
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: aos-linphone-morphos-ppc
+          path: build-ci/out/*
+          if-no-files-found: error
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [aros-x86_64, morphos-ppc]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: aos-linphone-*
+          path: out
+          merge-multiple: true
+
       - name: Publish the release
-        if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: build-ci/out/*
+          files: out/*

@@ -1,0 +1,22 @@
+--- libgcc/config/rs6000/gthr-morphos.c.orig
++++ libgcc/config/rs6000/gthr-morphos.c
+@@ -866,14 +866,17 @@
+ 		return EAGAIN;
+ 	}
+ 
++	/* Read the PID while the new process cannot run yet (Forbid() above):
++	 * a thread that ends at once frees its task, and a PID read later
++	 * leaves *threadid unset, so std::thread::join() fails with EINVAL. */
++	NewGetTaskAttrs(&proc->pr_Task, threadid, sizeof(*threadid), TASKINFOTYPE_PID, TAG_DONE);
++
+ #if USE_THREAD_SAFETYNET
+ 	msg->task = &proc->pr_Task;
+ 	addtail(&threadlist, &msg->node);
+ 	Permit();
+ #endif
+ 
+-	NewGetTaskAttrs(&proc->pr_Task, threadid, sizeof(*threadid), TASKINFOTYPE_PID, TAG_DONE);
+-
+ #ifdef __ixemul
+ 	WaitPort(&self->pr_MsgPort);
+ 	(void) GetMsg(&self->pr_MsgPort);

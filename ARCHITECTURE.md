@@ -4,7 +4,8 @@
 
 This document describes how aos-linphone is built: its layers, the
 repository layout, the compatibility layer that lets the linphone stack run
-on the system and the tests. Today every part targets AROS x86_64.
+on the system and the tests. Every part builds for AROS x86_64 and for
+MorphOS; where MorphOS differs, the sections say so.
 
 ## Layers
 
@@ -93,19 +94,20 @@ bottom row up.
 | Path | Contents |
 |---|---|
 | `compat/` | compatibility layer: `libaosnet` and `libaoscompat` |
-| `tests/` | tests of the layer, run on AROS |
-| `cmake/` | CMake toolchain file and platform description for AROS x86_64 |
+| `tests/` | tests of the layer, run on AROS and MorphOS |
+| `cmake/` | CMake toolchain files and platform descriptions for AROS x86_64 and MorphOS |
 | `third_party/linphone-sdk` | upstream linphone-sdk, pinned as a submodule |
-| `patches/` | source changes applied to the submodule, see [patches/README.md](patches/README.md) |
+| `patches/` | source changes applied to the submodule, and the GCC patches of the MorphOS toolchain, see [patches/README.md](patches/README.md) |
 | `deps/` | ports of the libraries the SDK needs: jsoncpp, speex, libxml2, mbedtls, libsrtp, opus, libvpx, libyuv, libjpeg-turbo |
 | `sdk/` | SDK build settings and documentation |
-| `scripts/` | `build-sdk.sh`, which builds and installs everything above, `package.sh`, which packs the programs for AROS, and `build-release.sh`, which does both and builds the programs in between |
+| `scripts/` | `build-sdk.sh`, which builds and installs everything above, `package.sh`, which packs the programs (and the MorphOS drivers), `build-release.sh`, which does both and builds the programs in between, and `build-morphos-toolchain.sh`, which builds the MorphOS cross toolchain |
 | `devices/` | devices for mediastreamer2: the AHI sound card, the camera, the video display, the Mire test camera, and the sources: the AHI microphone, the VHI cameras and raw files |
 | `apps/aos-register/` | SIP registration test program, see [its README](apps/aos-register/README.md) |
-| `apps/aos-phone/` | the Zune SIP client, see [its README](apps/aos-phone/README.md) |
+| `apps/aos-phone/` | the SIP client with a Zune (AROS) or MUI (MorphOS) interface, see [its README](apps/aos-phone/README.md) |
+| `drivers/` | USB drivers ported from AROS to MorphOS: `uvc.class` and `pcixhci.device`, see [drivers/README.md](drivers/README.md) |
 | `tools/` | host tools for the tests: `sip-registrar` |
 | `.githooks/` | git hooks, see [CONTRIBUTING.md](CONTRIBUTING.md) |
-| `.github/workflows/` | the GitHub Actions workflow that builds and packs the programs, see [Packing](#packing) |
+| `.github/workflows/` | the GitHub Actions workflow that builds and packs the programs for both systems, see [Packing](#packing) |
 
 ## Building the compatibility layer
 
@@ -124,6 +126,15 @@ cmake --build build
 build produces `compat/libaosnet.a`, `compat/libaoscompat.a` and the test
 programs. Warnings are errors in this project's code; `-DAOS_WERROR=OFF`
 turns that off.
+
+For MorphOS, `scripts/build-morphos-toolchain.sh <work dir>` builds the
+cross toolchain without root: GCC 15.2 with the MorphOS SDK 3.20 from
+pkgsrc, plus the patches in `patches/ppc-morphos-gcc/`. Its toolchain
+directory is `<work dir>/pkg/gg`; configure with
+`-DCMAKE_TOOLCHAIN_FILE=cmake/morphos-ppc.cmake` and
+`-DMORPHOS_TOOLCHAIN_DIR=<work dir>/pkg/gg`. The script header tells what
+it downloads and how long it takes. The SDK it installs may not be
+distributed separately, so keep the toolchain to yourself.
 
 The whole SDK, with the layer, the libraries from `deps/` and the patched
 linphone stack, is built by `scripts/build-sdk.sh`; see
@@ -164,13 +175,18 @@ program may use the devices meanwhile.
 ## Packing
 
 `scripts/package.sh` packs a build of `aos-phone` (and, with `-r`,
-`aos-register`) into `aos-linphone-<version>-aros-x86_64.lha` and `.zip` in
-`builds/`, which git ignores. Each archive holds the drawer `aos-linphone`
-with the programs, their icons, the files they read from `share/`, the
-documentation and `SOURCE.txt`, which names the commits of the source as
-the AGPL asks, plus the drawer icon `aos-linphone.info` next to it. The LHA
-archive needs an lha archiver (LHa for UNIX or jlha-utils); `--no-lha` makes
-the ZIP archive alone.
+`aos-register`) into `aos-linphone-<version>-<target>.lha` and `.zip` in
+`builds/`, which git ignores; `<target>` is `aros-x86_64` or `morphos-ppc`,
+whichever system the build was configured for. Each archive holds the
+drawer `aos-linphone` with the programs, their icons, the files they read
+from `share/`, the documentation and `SOURCE.txt`, which names the commits
+of the source as the AGPL asks, plus the drawer icon `aos-linphone.info`
+next to it. With `-d`, the script also packs the given drivers into
+`aos-linphone-drivers-<version>-<target>.lha` and `.zip`: the drawer
+`aos-linphone-drivers` with the drivers in the directories of the system
+they go to, [drivers/README.md](drivers/README.md), their licence and
+`SOURCE.txt`. The LHA archive needs an lha archiver (LHa for UNIX or
+jlha-utils); `--no-lha` makes the ZIP archives alone.
 The script header lists the options.
 
 The version lives in `cmake/version.cmake`: version.revision, the form of
@@ -188,19 +204,30 @@ git push origin v0.1
 `package.sh` stops when a commit tagged `v*` carries another version, so a
 tag cannot publish archives with a different version inside.
 
-`scripts/build-release.sh <toolchain> <work dir>` does the whole chain:
-the SDK (skipped when the prefix in the work directory already holds it),
-both programs, then `package.sh`.
+`scripts/build-release.sh <toolchain> <work dir>` does the whole chain for
+the system of the toolchain: the SDK (skipped when the prefix in the work
+directory already holds it), both programs, on MorphOS also both drivers
+in `drivers/`, then `package.sh`.
 
-The workflow `.github/workflows/package.yml` runs that chain on GitHub, on
-an Ubuntu 24.04 runner, and keeps the archives as an artifact of the run; a
-tag `v*` also publishes them as a GitHub release. The port needs the AROS
-toolchain and SDK of one AROS revision (older SDKs lack parts of
-bsdsocket.library that the compatibility layer uses), so the first run
-builds them from the AROS sources, as the AROS project's own CI does, and
-caches them under `/opt/aros`, the path the toolchain records. That first
-run takes about 40 minutes, most of it the AROS build; later runs restore
-the toolchain, the SDK and the built linphone SDK from the cache.
+The workflow `.github/workflows/package.yml` runs that chain on GitHub, in
+one job per system on Ubuntu 24.04 runners, and keeps the archives of each
+system as an artifact of the run. On a tag `v*`, a third job publishes the
+archives of both systems as a GitHub release once both have built.
+
+- AROS: the port needs the AROS toolchain and SDK of one AROS revision
+  (older SDKs lack parts of bsdsocket.library that the compatibility layer
+  uses), so the first run builds them from the AROS sources, as the AROS
+  project's own CI does, and caches them under `/opt/aros`, the path the
+  toolchain records. That first run takes about 40 minutes, most of it the
+  AROS build.
+- MorphOS: the job builds the toolchain with
+  `scripts/build-morphos-toolchain.sh` into `/opt/morphos` and caches it
+  until the pkgsrc commit, the SDK archive or the GCC patches change. It
+  builds `ilbmtoicon` for the icons from its one source file in the AROS
+  revision above.
+
+Later runs restore the toolchains and the built linphone SDKs from the
+cache.
 
 ## Using the compatibility layer
 

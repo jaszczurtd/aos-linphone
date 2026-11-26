@@ -1,10 +1,12 @@
 # aos-phone
 
-A SIP phone for AROS with a Zune interface, built on liblinphone. It
+A SIP phone for AROS and MorphOS, built on liblinphone, with a Zune
+interface on AROS and MUI on MorphOS. It
 registers an account, makes and answers calls with sound and video, and
 exchanges text messages. You hear the other side and the ring tone through
 AHI and see its picture in the call window. Your voice comes from an AHI
-input, and your picture from a USB camera that AROS's `uvc.class` drives.
+input, and your picture from a USB camera that `uvc.class` drives (on
+MorphOS, the port in [drivers/](../../drivers/README.md)).
 For tests, prepared raw files can stand in for the microphone and the
 camera (see [Test files](#test-files)). Calls can also be recorded to
 files.
@@ -47,7 +49,7 @@ aos-phone [DATA=<directory>] [PORT=<number>] [RECORD=<directory>]
   media, which helps when one or both sides sit behind NAT. By default
   calls use no ICE.
 
-The program needs AROSTCP running and the belr grammars in
+The program needs the network stack running (AROSTCP on AROS) and the belr grammars in
 `share/belr/grammars/` next to it, as `aos-register` does (see
 [its README](../aos-register/README.md#running)). It prints what happens
 to its standard output.
@@ -238,9 +240,13 @@ cmake -S apps/aos-phone -B build-phone -G Ninja \
 cmake --build build-phone
 ```
 
+For MorphOS: `-C sdk/morphos-sdk.cmake`,
+`-DCMAKE_TOOLCHAIN_FILE=<repo>/cmake/morphos-ppc.cmake` and
+`-DMORPHOS_TOOLCHAIN_DIR=<toolchain>`.
+
 The build gives `aos-phone`, `aos-phone.info`, `aos-phone-cmd`,
 `aos-linphone.info` and the tests `test_queue`, `test_video_display`,
-`test_capture`, `test_hw_sources`, `test_dns` and `test_https`. `aos-phone.info` is the
+`test_capture`, `test_hw_sources` (AROS only), `test_dns` and `test_https`. `aos-phone.info` is the
 Workbench icon of the program; copy it next to the program.
 `aos-linphone.info` is the icon of the drawer that holds it: copy it next to
 the drawer, e.g. to `Work:aos-linphone.info` for `Work:aos-linphone`.
@@ -268,14 +274,14 @@ tests on AROS.
 | `src/main.c` | arguments, tool types, test files and start-up |
 | `src/cmd.c` | `aos-phone-cmd` |
 | `icons/` | the image and descriptions of the Workbench icons |
-| `tests/test_queue.c` | tests of the queues, run on AROS |
-| `tests/test_dns.c` | tests of name resolution with `getaddrinfo()` and the resolver of belle-sip, run on AROS |
-| `tests/test_https.c` | tests of HTTPS through belle-sip's HTTP client (TCP, TLS, certificate check), run on AROS |
+| `tests/test_queue.c` | tests of the queues, run on AROS and MorphOS |
+| `tests/test_dns.c` | tests of name resolution with `getaddrinfo()` and the resolver of belle-sip, run on AROS and MorphOS |
+| `tests/test_https.c` | tests of HTTPS through belle-sip's HTTP client (TCP, TLS, certificate check), run on AROS and MorphOS |
 | `../../devices/source.h` | the interface of the sources a camera or microphone takes its data from |
 | `../../devices/ahi/` | the AHI sound card for mediastreamer2, shared with other programs |
 | `../../devices/video/` | the video display, the camera that shows a source and the Mire test camera |
 | `../../devices/files/` | sources that play raw picture and sound files |
-| `../../devices/tests/` | tests of the video display and of the capture devices, run on AROS |
+| `../../devices/tests/` | tests of the video display and of the capture devices, run on AROS and MorphOS (the hardware sources on AROS only) |
 
 The core thread creates the linphone core and makes every liblinphone call,
 including the callbacks; each such function checks that it runs in that

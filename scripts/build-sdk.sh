@@ -41,17 +41,9 @@ build=${3:-$repo}
 jobs=${JOBS:-8}
 sdk="$repo/third_party/linphone-sdk"
 
-if [ -x "$toolchain/x86_64-aros-gcc" ]; then
-    system=aros
-    tc=(-DCMAKE_TOOLCHAIN_FILE="$repo/cmake/aros-x86_64.cmake" -DAROS_TOOLCHAIN_DIR="$toolchain")
-elif [ -x "$toolchain/bin/ppc-morphos-gcc" ]; then
-    system=morphos
-    tc=(-DCMAKE_TOOLCHAIN_FILE="$repo/cmake/morphos-ppc.cmake" -DMORPHOS_TOOLCHAIN_DIR="$toolchain")
-else
-    echo "$toolchain holds neither x86_64-aros-gcc nor bin/ppc-morphos-gcc" >&2
-    exit 1
-fi
-sdk_cache="$repo/sdk/$system-sdk.cmake"
+# shellcheck source=toolchain-args.sh
+. "$repo/scripts/toolchain-args.sh"
+aos_toolchain_args "$repo" "$toolchain"
 
 # The SDK needs only these submodules of its own; mbedtls needs its
 # framework submodule to configure.

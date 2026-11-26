@@ -8,7 +8,8 @@
 #         -DMORPHOS_TOOLCHAIN_DIR=<directory with bin/ppc-morphos-gcc>
 #   cmake --build build-uvc
 #
-# The result, build-uvc/uvc.class, goes to SYS:Classes/USB.
+# The result, build-uvc/uvc.class, goes to SYS:MorphOS/Classes/USB, where
+# AddUSBClasses finds it (see drivers/README.md).
 #
 # Licensed under the AROS Public License version 1.1, like the AROS class
 # it comes from (see LICENCE.md of the repository).
