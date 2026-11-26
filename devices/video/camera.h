@@ -8,7 +8,11 @@
  * new picture on, at most at the picture rate the stream asks for. A
  * picture of odd width or height loses its last column or row. When the
  * source stops giving pictures, the filter reports 0 pictures per second,
- * and mediastreamer2 replaces the camera with StaticImage after 5 s.
+ * and mediastreamer2 replaces the camera with StaticImage after 5 s. A
+ * source counts as stopped when its first picture has not come 10 s after
+ * the start, or later after 1 s without a picture, or after four times the
+ * longest wait it has kept the stream waiting before (at most 30 s), so a
+ * slow camera is not taken for a dead one.
  *
  * The filter converts the pictures itself because mediastreamer2 built
  * with libyuv reads its RGB24 formats unlike their names: MS_RGB24 as

@@ -49,6 +49,9 @@ The other libraries are submodules of linphone-sdk (`external/`), built by
 | libvpx | BSD-3-Clause, with an additional patent grant |
 | libyuv | BSD-3-Clause, with an additional patent grant |
 | libjpeg-turbo | IJG, BSD-3-Clause and zlib licences |
+| SDI headers (`apps/aos-phone/sdi/`) | public domain |
+| `uvc.class` for MorphOS (`drivers/uvc/`), a port of the AROS class | AROS Public License 1.1 (`drivers/uvc/LICENSE`) |
+| `pcixhci.device` for MorphOS (`drivers/xhci/`), a port of the AROS driver | AROS Public License 1.1 (`drivers/xhci/LICENSE`) |
 
 The files in `patches/` change source files of linphone-sdk. Each change
 falls under the licence of the file it changes.

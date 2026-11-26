@@ -11,8 +11,9 @@
  * sits in its own object file: a program that needs real pipes must not
  * link libaosnet's pipe.o (it is pulled in only by a reference to pipe()).
  */
-#include "net_internal.h"
+#include "aos/net.h"
 
+#include <errno.h>
 #include <netinet/tcp.h>
 #include <string.h>
 #include <unistd.h>
@@ -32,8 +33,17 @@ static void aos_pipe_close(int fd) {
     }
 }
 
+/* libnix declares pipe(int *), posixc pipe(int [2]). */
+#ifdef __MORPHOS__
+int pipe(int *fds) {
+#else
 int pipe(int fds[2]) {
-    AOS_NET_REQUIRE_BASE(-1);
+#endif
+    int status = aos_net_status();
+    if (status != 0) {
+        errno = status;
+        return -1;
+    }
     if (fds == NULL) {
         errno = EFAULT;
         return -1;

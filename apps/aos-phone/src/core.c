@@ -41,24 +41,24 @@
 #define DEFAULT_DOWNLOAD_KBIT 512 /* the other side then sends VP8 at VGA size or less */
 
 enum command_type {
-    CMD_REGISTER,
-    CMD_UNREGISTER,
-    CMD_REMOVE_ACCOUNT,
-    CMD_SET_DEFAULT,
-    CMD_CALL,
-    CMD_ANSWER,
-    CMD_HANGUP,
-    CMD_PLAY,
-    CMD_SNAPSHOT,
-    CMD_VIDEO,
-    CMD_MESSAGE,
-    CMD_STOP
+    CORE_CMD_REGISTER,
+    CORE_CMD_UNREGISTER,
+    CORE_CMD_REMOVE_ACCOUNT,
+    CORE_CMD_SET_DEFAULT,
+    CORE_CMD_CALL,
+    CORE_CMD_ANSWER,
+    CORE_CMD_HANGUP,
+    CORE_CMD_PLAY,
+    CORE_CMD_SNAPSHOT,
+    CORE_CMD_VIDEO,
+    CORE_CMD_MESSAGE,
+    CORE_CMD_STOP
 };
 
 struct command {
     enum command_type type;
     int id;
-    int flag;                        /* CMD_VIDEO: on or off */
+    int flag;                        /* CORE_CMD_VIDEO: on or off */
     char address[AOS_CORE_ADDR_MAX]; /* identity, callee or message peer */
     char server[AOS_CORE_ADDR_MAX];
     char password[PASSWORD_MAX];
@@ -1110,18 +1110,18 @@ static int create_core(void) {
 static void run_command(struct command *cmd) {
     CORE_THREAD_ONLY();
     switch (cmd->type) {
-    case CMD_REGISTER: do_register(cmd); break;
-    case CMD_UNREGISTER: do_unregister(cmd); break;
-    case CMD_REMOVE_ACCOUNT: do_remove_account(cmd); break;
-    case CMD_SET_DEFAULT: do_set_default(cmd); break;
-    case CMD_CALL: do_call(cmd); break;
-    case CMD_ANSWER: do_answer(cmd->id); break;
-    case CMD_HANGUP: do_hangup(cmd->id); break;
-    case CMD_PLAY: do_play(cmd); break;
-    case CMD_SNAPSHOT: do_snapshot(cmd); break;
-    case CMD_VIDEO: do_set_video(cmd); break;
-    case CMD_MESSAGE: do_message(cmd); break;
-    case CMD_STOP: g.stop = 1; break;
+    case CORE_CMD_REGISTER: do_register(cmd); break;
+    case CORE_CMD_UNREGISTER: do_unregister(cmd); break;
+    case CORE_CMD_REMOVE_ACCOUNT: do_remove_account(cmd); break;
+    case CORE_CMD_SET_DEFAULT: do_set_default(cmd); break;
+    case CORE_CMD_CALL: do_call(cmd); break;
+    case CORE_CMD_ANSWER: do_answer(cmd->id); break;
+    case CORE_CMD_HANGUP: do_hangup(cmd->id); break;
+    case CORE_CMD_PLAY: do_play(cmd); break;
+    case CORE_CMD_SNAPSHOT: do_snapshot(cmd); break;
+    case CORE_CMD_VIDEO: do_set_video(cmd); break;
+    case CORE_CMD_MESSAGE: do_message(cmd); break;
+    case CORE_CMD_STOP: g.stop = 1; break;
     }
     memset(cmd->password, 0, sizeof(cmd->password));
 }
@@ -1247,7 +1247,7 @@ void aos_core_stop(void) {
     }
     struct command cmd;
     memset(&cmd, 0, sizeof(cmd));
-    cmd.type = CMD_STOP;
+    cmd.type = CORE_CMD_STOP;
     while (push_command(&cmd) != 0 && !thread_finished()) {
         usleep(CORE_TICK_US);
     }
@@ -1265,7 +1265,7 @@ int aos_core_next_event(struct aos_core_event *event) {
 int aos_core_register(const char *identity, const char *password, const char *server) {
     struct command cmd;
     memset(&cmd, 0, sizeof(cmd));
-    cmd.type = CMD_REGISTER;
+    cmd.type = CORE_CMD_REGISTER;
     copy_text(cmd.address, sizeof(cmd.address), identity);
     copy_text(cmd.password, sizeof(cmd.password), password);
     copy_text(cmd.server, sizeof(cmd.server), server);
@@ -1284,33 +1284,33 @@ static int simple_command(enum command_type type, int id, const char *address) {
 }
 
 int aos_core_unregister(const char *identity) {
-    return simple_command(CMD_UNREGISTER, 0, identity);
+    return simple_command(CORE_CMD_UNREGISTER, 0, identity);
 }
 
 int aos_core_remove_account(const char *identity) {
-    return simple_command(CMD_REMOVE_ACCOUNT, 0, identity);
+    return simple_command(CORE_CMD_REMOVE_ACCOUNT, 0, identity);
 }
 
 int aos_core_set_default_account(const char *identity) {
-    return simple_command(CMD_SET_DEFAULT, 0, identity);
+    return simple_command(CORE_CMD_SET_DEFAULT, 0, identity);
 }
 
 int aos_core_call(const char *address) {
-    return simple_command(CMD_CALL, 0, address);
+    return simple_command(CORE_CMD_CALL, 0, address);
 }
 
 int aos_core_answer(int call_id) {
-    return simple_command(CMD_ANSWER, call_id, NULL);
+    return simple_command(CORE_CMD_ANSWER, call_id, NULL);
 }
 
 int aos_core_hangup(int call_id) {
-    return simple_command(CMD_HANGUP, call_id, NULL);
+    return simple_command(CORE_CMD_HANGUP, call_id, NULL);
 }
 
 int aos_core_play(int call_id, const char *file) {
     struct command cmd;
     memset(&cmd, 0, sizeof(cmd));
-    cmd.type = CMD_PLAY;
+    cmd.type = CORE_CMD_PLAY;
     cmd.id = call_id;
     copy_text(cmd.text, sizeof(cmd.text), file);
     return push_command(&cmd);
@@ -1319,7 +1319,7 @@ int aos_core_play(int call_id, const char *file) {
 int aos_core_snapshot(int call_id, const char *file) {
     struct command cmd;
     memset(&cmd, 0, sizeof(cmd));
-    cmd.type = CMD_SNAPSHOT;
+    cmd.type = CORE_CMD_SNAPSHOT;
     cmd.id = call_id;
     copy_text(cmd.text, sizeof(cmd.text), file);
     return push_command(&cmd);
@@ -1328,7 +1328,7 @@ int aos_core_snapshot(int call_id, const char *file) {
 int aos_core_set_video(int call_id, int on) {
     struct command cmd;
     memset(&cmd, 0, sizeof(cmd));
-    cmd.type = CMD_VIDEO;
+    cmd.type = CORE_CMD_VIDEO;
     cmd.id = call_id;
     cmd.flag = on != 0;
     return push_command(&cmd);
@@ -1337,7 +1337,7 @@ int aos_core_set_video(int call_id, int on) {
 int aos_core_send_message(const char *peer, const char *text) {
     struct command cmd;
     memset(&cmd, 0, sizeof(cmd));
-    cmd.type = CMD_MESSAGE;
+    cmd.type = CORE_CMD_MESSAGE;
     cmd.id = ++g.next_message_id;
     copy_text(cmd.address, sizeof(cmd.address), peer);
     copy_utf8(cmd.text, sizeof(cmd.text), text);

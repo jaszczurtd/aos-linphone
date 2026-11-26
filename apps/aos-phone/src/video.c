@@ -4,11 +4,13 @@
  * the borders around it with FillPixelArray().
  */
 #include "video.h"
+#include "mui_compat.h"
 
 #include <cybergraphx/cybergraphics.h>
 #include <exec/types.h>
 #include <libraries/mui.h>
 
+#include <SDI/SDI_hook.h>
 #include <clib/alib_protos.h>
 #include <proto/cybergraphics.h>
 #include <proto/intuition.h>
@@ -87,7 +89,7 @@ static IPTR video_draw(Class *cl, Object *obj, struct MUIP_Draw *msg) {
 }
 
 /* clang-format off */
-BOOPSI_DISPATCHER(IPTR, video_dispatcher, cl, obj, msg)
+SDISPATCHER(video_dispatcher) {
     struct video_data *data;
     switch (msg->MethodID) {
     case MUIM_AskMinMax: return video_ask_min_max(cl, obj, (struct MUIP_AskMinMax *)msg);
@@ -105,11 +107,11 @@ BOOPSI_DISPATCHER(IPTR, video_dispatcher, cl, obj, msg)
         return DoSuperMethodA(cl, obj, msg);
     }
     return DoSuperMethodA(cl, obj, msg);
-BOOPSI_DISPATCHER_END
+}
 /* clang-format on */
 
 struct MUI_CustomClass *aos_video_class_create(void) {
-    return MUI_CreateCustomClass(NULL, (ClassID)MUIC_Area, NULL, sizeof(struct video_data), video_dispatcher);
+    return MUI_CreateCustomClass(NULL, AOS_SUPERCLASS(MUIC_Area), NULL, sizeof(struct video_data), ENTRY(video_dispatcher));
 }
 
 void aos_video_class_delete(struct MUI_CustomClass *video_class) {

@@ -1,7 +1,10 @@
 /*
  * libaoscompat: iconv() as bctoolbox's charconv uses it (system code page
  * from nl_langinfo(CODESET) to UTF-8 and back), the dlopen() and
- * backtrace() stubs, and setpriority().
+ * backtrace() stubs, setpriority(), and the entropy source of mbedtls.
+ * On MorphOS iconv() is the system
+ * iconv.library (GNU libiconv); the checks of choices made by the AROS
+ * implementation run on AROS only.
  */
 #include "aos_test.h"
 
@@ -38,7 +41,7 @@ static void check_iconv(void) {
     AOS_CHECK(n == 5 && memcmp(out, "caf\xc3\xa9", 5) == 0, "ISO-8859-1 to UTF-8 (built in)");
 
     n = convert("ISO-8859-2", "UTF-8", utf8, strlen(utf8), out, sizeof(out));
-    AOS_CHECK(n == 6 && memcmp(out, latin2, 6) == 0, "UTF-8 to ISO-8859-2 through codesets.library");
+    AOS_CHECK(n == 6 && memcmp(out, latin2, 6) == 0, "UTF-8 to ISO-8859-2");
     n = convert("utf8", "iso-8859-2", latin2, 6, out, sizeof(out));
     AOS_CHECK(n == (long)strlen(utf8) && memcmp(out, utf8, (size_t)n) == 0,
               "ISO-8859-2 to UTF-8, names in another spelling");
@@ -72,9 +75,11 @@ static void check_iconv(void) {
               "E2BIG does not split a multi-byte character");
     iconv_close(cd);
 
+#ifdef __AROS__
     errno = 0;
     AOS_CHECK(iconv_open("UTF-16", "UTF-8") == (iconv_t)-1 && errno == EINVAL,
               "UTF-16 is refused instead of converted as an 8-bit table");
+#endif
 
     static const char bad[] = "a\xc3(";
     errno = 0;
@@ -96,9 +101,11 @@ static void check_iconv(void) {
     AOS_CHECK(convert("ISO-8859-1", "UTF-8", "\xe2\x82\xac", 3, out, sizeof(out)) == -1 &&
                   errno == EILSEQ,
               "a character the target lacks fails with EILSEQ");
+#ifdef __AROS__
     AOS_CHECK(convert("ISO-8859-1//TRANSLIT", "UTF-8", "\xe2\x82\xac!", 4, out, sizeof(out)) == 2 &&
                   memcmp(out, "?!", 2) == 0,
               "//TRANSLIT replaces it with '?'");
+#endif
 
     /* bctoolbox convert_from_to("locale", "UTF-8") */
     setlocale(LC_CTYPE, "");
@@ -130,8 +137,27 @@ static void check_stubs(void) {
     AOS_CHECK(getpriority(PRIO_PROCESS, 0) == 0, "getpriority() reports 0");
 }
 
+/* From libaoscompat, with the prototype of mbedtls/entropy_poll.h. */
+int mbedtls_hardware_poll(void *data, unsigned char *output, size_t len, size_t *olen);
+
+static void check_entropy(void) {
+    unsigned char a[300], b[300];
+    size_t na = 0, nb = 0;
+    memset(a, 0, sizeof(a));
+    memset(b, 0, sizeof(b));
+    AOS_CHECK(mbedtls_hardware_poll(NULL, a, sizeof(a), &na) == 0 && na == sizeof(a),
+              "mbedtls_hardware_poll() fills 300 bytes");
+    AOS_CHECK(mbedtls_hardware_poll(NULL, b, sizeof(b), &nb) == 0 && nb == sizeof(b), "and again");
+    int zeros = 0;
+    for (size_t i = 0; i < sizeof(a); ++i) {
+        zeros += a[i] == 0;
+    }
+    AOS_CHECK(memcmp(a, b, sizeof(a)) != 0 && zeros < 20, "the two outputs differ and are not mostly zero");
+}
+
 int main(void) {
     check_iconv();
     check_stubs();
+    check_entropy();
     return aos_test_result();
 }

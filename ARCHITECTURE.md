@@ -13,8 +13,8 @@ upstream code almost untouched and adds what the system lacks underneath
 it. From the bottom up:
 
 1. The compatibility layer (`compat/`) gives the stack a POSIX view of the
-   AROS network API and the few system functions it needs, so the stack
-   builds without changes for each AROS quirk. See
+   AROS (and MorphOS) network API and the few system functions it needs,
+   so the stack builds without changes for each system quirk. See
    [the compatibility layer](#using-the-compatibility-layer) below.
 2. The libraries in `deps/` are ports of the third-party code the SDK
    needs: jsoncpp, speex, libxml2, mbedtls, libsrtp, opus, libvpx, libyuv
@@ -33,6 +33,12 @@ it. From the bottom up:
    runs the linphone core in its own thread and talks to its Zune windows
    through fixed-size queues; its [README](apps/aos-phone/README.md)
    describes the structure.
+6. `drivers/` holds system modules ported from AROS to MorphOS, each a
+   separate CMake project under the AROS Public License: `drivers/uvc/`
+   is the Poseidon class for USB video cameras, and `drivers/xhci/` the
+   USB 3 host controller driver `pcixhci.device`, whose ports carry the
+   isochronous transfers of high-speed cameras, which the EHCI driver of
+   MorphOS does not.
 
 ### Devices and sources
 
@@ -52,12 +58,19 @@ device does the rest. There are three kinds:
 - `devices/ahi/ahi_source.c` records a unit of `ahi.device` at 48 kHz mono.
   A thread of its own holds the message port and the I/O request and reads
   20 ms portions with `CMD_READ`, each continuing at the `io_Offset` of the
-  one before, so AHI records without gaps.
+  one before, so AHI records without gaps. It waits for each request
+  together with `SIGBREAKF_CTRL_F`, which closing the source sends, and
+  aborts a request that never completes (an AHI mode that cannot record),
+  so a call can always end. The writer of the AHI card waits the same way.
 - `devices/vhi/vhi_camera.c` grabs from the VHI libraries that
   `uvc.class` publishes for USB cameras (`uvc0.vhi` and on). It picks the
   uncompressed (YUY2) mode nearest to the size the stream asks for and
   takes each picture as RGB24, converted by `uvc.class`. Each library
-  present at start becomes a camera `VHI: <card name> (uvc<n>)`.
+  present at start becomes a camera `VHI: <card name> (uvc<n>)`. On
+  MorphOS it compiles against the headers of the port in `drivers/uvc/`;
+  its cameras deliver pictures on a controller of `drivers/xhci/`.
+  Systems without `uvc.class` build `vhi_none.c`, which registers no
+  camera.
 - `devices/files/` plays raw files, which `aos-phone` offers as test
   options.
 
@@ -126,6 +139,9 @@ exit code:
 cmake -B build -DAOS_TEST_RUNNER="/path/to/runner;--timeout;120"
 ctest --test-dir build --output-on-failure
 ```
+
+The tests also build for MorphOS (`cmake/morphos-ppc.cmake`), where they
+are started by hand.
 
 The runner receives the program path followed by its arguments. Each test
 prints one `PASS` or `FAIL` line per check and returns 0 when all of them
@@ -265,6 +281,46 @@ Behaviour of the library:
 - `setpriority()` refuses with `EPERM`. Threads change their Exec priority
   with `pthread_setschedparam()` (range -2 to 2 on AROS). The rest of
   `<sys/resource.h>` comes from the AROS C library.
+
+
+### MorphOS
+
+The same headers and archives build for MorphOS with
+`cmake/morphos-ppc.cmake` (libnix with libpthread). The MorphOS network
+stack keeps socket descriptors per task and numbers them like the files of
+the C library, so the backend differs:
+
+- Sockets get numbers of their own, from 512. Each thread works on its own
+  copy of a socket, taken from the network stack the first time the thread
+  uses it; the copies share the socket's state. `close()` shuts the socket
+  down for every thread. A copy in another thread is closed at that
+  thread's next call into the library or when the thread ends; until then
+  a UDP port stays bound. At exit the library closes what is left of the
+  sockets still open, which the network stack would otherwise keep, with
+  their ports, until a reboot.
+- libnix keeps `close()`, `read()`, `write()` and `fcntl()` for its own
+  files, so programs are linked with
+  `-Wl,--wrap=close,--wrap=read,--wrap=write,--wrap=fcntl,-u,__wrap_close`.
+  CMake targets that link `aosnet` get these options.
+- The library does `MSG_DONTWAIT` itself, since the network stack ignores
+  it.
+- Names are resolved with `gethostbyname()`, IPv4 only. IPv6 sockets fail
+  with `EAFNOSUPPORT`; IPv6 address strings are still converted.
+- `aos_net_dns_servers()` lists only the servers set by hand
+  (`ENV:sys/net/resolv.conf`): the network stack does not report the ones
+  it got from DHCP. Without them, belle-sip resolves addresses with
+  `getaddrinfo()`, see [sdk/README.md](sdk/README.md#morphos).
+- `iconv()` uses the system iconv.library through functions that set
+  `errno`, which the library does not. `nl_langinfo(CODESET)` names the
+  character set of the user's locale, and mbedtls takes its entropy from
+  random.library.
+- C++ code is built with `-fuse-cxa-atexit` (the platform files add it to
+  every C++ compile), because with GCC's default for MorphOS the
+  destructors of `thread_local` objects never run. libaoscompat provides
+  `__dso_handle` and `__cxa_atexit()`, which libnix lacks; each
+  registration goes to `atexit()` through a trampoline of its own, so static
+  destructors keep their place among the other exit handlers.
+  `tests/test_cxx_runtime.cpp` checks both.
 
 ## Known limitations of AROS
 

@@ -7,6 +7,7 @@
 #include <mediastreamer2/mscommon.h>
 
 #include <devices/ahi.h>
+#include <dos/dos.h>
 #include <exec/memory.h>
 #include <proto/exec.h>
 
@@ -34,8 +35,29 @@ struct capture {
     int stop;
     int failed;
     int running;
+    struct Task *task; /* the capture thread, which ahi_close() wakes */
     pthread_t thread;
 };
+
+/* Waits until req completes, or until stop is set and the thread gets
+   SIGBREAKF_CTRL_F: a device without working recording may never complete
+   CMD_READ. Returns 0 when req completed (and was taken back), -1 on stop
+   with req still pending. */
+static int wait_request(struct capture *c, struct AHIRequest *req, ULONG port_mask) {
+    for (;;) {
+        if (CheckIO((struct IORequest *)req)) {
+            WaitIO((struct IORequest *)req);
+            return 0;
+        }
+        pthread_mutex_lock(&c->lock);
+        int stop = c->stop;
+        pthread_mutex_unlock(&c->lock);
+        if (stop) {
+            return -1;
+        }
+        Wait(port_mask | SIGBREAKF_CTRL_F);
+    }
+}
 
 /* Both under the lock. */
 static void ring_put(struct capture *c, const short *frames, size_t n) {
@@ -87,6 +109,10 @@ static void *capture_main(void *arg) {
         ms_error("AosAhiSource: cannot open %s unit %lu", AHINAME, c->unit);
         fail(c);
     } else {
+        pthread_mutex_lock(&c->lock);
+        c->task = FindTask(NULL);
+        pthread_mutex_unlock(&c->lock);
+        ULONG port_mask = 1UL << port->mp_SigBit;
         ULONG offset = 0; /* continues where the request before ended */
         for (;;) {
             pthread_mutex_lock(&c->lock);
@@ -102,7 +128,13 @@ static void *capture_main(void *arg) {
             req->ahir_Std.io_Offset = offset;
             req->ahir_Type = AHIST_M16S;
             req->ahir_Frequency = RATE;
-            if (DoIO((struct IORequest *)req) != 0) {
+            SendIO((struct IORequest *)req);
+            if (wait_request(c, req, port_mask) != 0) {
+                AbortIO((struct IORequest *)req);
+                WaitIO((struct IORequest *)req);
+                break;
+            }
+            if (req->ahir_Std.io_Error != 0) {
                 ms_error("AosAhiSource: CMD_READ on unit %lu failed with %d", c->unit, (int)req->ahir_Std.io_Error);
                 fail(c);
                 break;
@@ -124,6 +156,9 @@ static void *capture_main(void *arg) {
     if (port != NULL) {
         DeleteMsgPort(port);
     }
+    pthread_mutex_lock(&c->lock);
+    c->task = NULL; /* nothing may signal this task once it ends */
+    pthread_mutex_unlock(&c->lock);
     return NULL;
 }
 
@@ -183,6 +218,9 @@ static void ahi_close(void *handle) {
     struct capture *c = handle;
     pthread_mutex_lock(&c->lock);
     c->stop = 1;
+    if (c->task != NULL) {
+        Signal(c->task, SIGBREAKF_CTRL_F);
+    }
     pthread_mutex_unlock(&c->lock);
     pthread_join(c->thread, NULL);
     if (c->dropped > 0) {

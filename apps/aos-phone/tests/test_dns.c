@@ -1,7 +1,7 @@
 /*
- * Tests of name resolution on AROS, the way the phone resolves names:
- * getaddrinfo() of a real host name through the compatibility layer, and
- * the DNS resolver of belle-sip, which the linphone core uses for SIP
+ * Tests of name resolution on AROS and MorphOS, the way the phone resolves
+ * names: getaddrinfo() of a real host name through the compatibility layer,
+ * and the DNS resolver of belle-sip, which the linphone core uses for SIP
  * domains, given the DNS servers of the network configuration
  * (aos_net_dns_servers()), as aos-phone does.
  *
@@ -16,7 +16,10 @@
  * asked for, and fails for a name under .invalid; belle-sip finds the A
  * record of the host, the SRV records of the domain, and the addresses of
  * the SRV targets in one query, as for a SIP domain, and reports a name
- * under .invalid as not found; every query ends within its timeout.
+ * under .invalid as not found; every query ends within its timeout. With
+ * no DNS server known (MorphOS takes its servers from DHCP and does not
+ * report them), belle-sip resolves addresses through getaddrinfo() and the
+ * SIP domain through its A record.
  */
 #include "aos_test.h"
 
@@ -160,7 +163,13 @@ static void test_belle_sip(const char *host, const char *domain) {
         printf("info:   %s:%u\n", result.targets[i], (unsigned)result.ports[i]);
         targets_ok = targets_ok && result.targets[i][0] != '\0' && result.ports[i] != 0;
     }
-    AOS_CHECK(took >= 0 && targets_ok, "belle-sip finds the SRV records of a SIP domain");
+    if (count > 0) {
+        AOS_CHECK(took >= 0 && targets_ok, "belle-sip finds the SRV records of a SIP domain");
+    } else {
+        /* belle-sip looks up SRV records with its own resolver only, which
+           needs a DNS server; addresses come from getaddrinfo(). */
+        printf("info: no DNS server known: no SRV records\n");
+    }
 
     reset(0);
     belle_sip_stack_resolve(stack, "sip", "udp", domain, 5060, AF_INET, on_addresses, NULL);
@@ -168,8 +177,12 @@ static void test_belle_sip(const char *host, const char *domain) {
     printf("info: belle-sip SRV and A of %s: %d address(es) (%d from SRV targets), %d SRV record(s), first %s, "
            "%ld ms\n",
            domain, result.addresses, result.addresses_with_srv, result.srv_records, result.first, took);
-    AOS_CHECK(took >= 0 && result.addresses > 0 && result.srv_records > 0 && result.addresses_with_srv > 0,
-              "belle-sip resolves a SIP domain through its SRV records to addresses");
+    if (count > 0) {
+        AOS_CHECK(took >= 0 && result.addresses > 0 && result.srv_records > 0 && result.addresses_with_srv > 0,
+                  "belle-sip resolves a SIP domain through its SRV records to addresses");
+    } else {
+        AOS_CHECK(took >= 0 && result.addresses > 0, "without a DNS server, a SIP domain resolves through its A record");
+    }
 
     reset(5060);
     belle_sip_stack_resolve_a(stack, MISSING, 5060, AF_INET, on_addresses, NULL);
@@ -190,7 +203,12 @@ int main(int argc, char **argv) {
     char servers[4][AOS_NET_ADDRSTRLEN];
     int count = aos_net_dns_servers(servers, 4);
     printf("info: %d DNS server(s)%s%s\n", count, count > 0 ? ", first " : "", count > 0 ? servers[0] : "");
+#ifdef __MORPHOS__
+    /* The MorphOS network stack reports only the servers set by hand. */
+    printf("info: %s\n", count > 0 ? "DNS servers set by hand" : "no DNS server known");
+#else
     AOS_CHECK(count > 0, "the network configuration gives a DNS server");
+#endif
     test_getaddrinfo(host);
     test_belle_sip(host, domain);
     return aos_test_result();

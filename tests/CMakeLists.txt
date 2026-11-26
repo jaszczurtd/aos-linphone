@@ -1,13 +1,13 @@
-# Tests run on AROS. AOS_TEST_RUNNER is a command that uploads a program to
-# a running AROS system, runs it with the given arguments and returns its
-# exit code, for example:
+# Tests run on the target system (AROS or MorphOS). AOS_TEST_RUNNER is a
+# command that uploads a program to a running system, runs it with the given
+# arguments and returns its exit code, for example:
 #
 #   -DAOS_TEST_RUNNER="/path/to/runner;--timeout;120"
 #
 # Without it the tests are only built.
 
 set(AOS_TEST_RUNNER "" CACHE STRING
-    "Command (CMake list) that runs an AROS program and returns its exit code")
+    "Command (CMake list) that runs a program on the target and returns its exit code")
 
 set(AOS_TESTS
     test_net_socket.c
@@ -15,6 +15,7 @@ set(AOS_TESTS
     test_net_wait.c
     test_compat.c
     test_cxx_names.cpp
+    test_cxx_runtime.cpp
 )
 
 foreach(source IN LISTS AOS_TESTS)

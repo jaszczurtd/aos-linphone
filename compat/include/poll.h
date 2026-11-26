@@ -1,5 +1,6 @@
 /*
- * poll.h - poll() for AROS, implemented by libaosnet over WaitSelect().
+ * poll.h - poll() for AROS and MorphOS, implemented by libaosnet over
+ * WaitSelect().
  *
  * Only socket descriptors can be waited on. Any other descriptor is
  * reported as POLLNVAL. End of stream and socket errors show up as POLLIN

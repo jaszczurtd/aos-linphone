@@ -16,6 +16,7 @@
 #include "gui.h"
 #include "core.h"
 #include "lamp.h"
+#include "mui_compat.h"
 #include "text.h"
 #include "video.h"
 
@@ -24,6 +25,7 @@
 #include <rexx/errors.h>
 #include <utility/hooks.h>
 
+#include <SDI/SDI_hook.h>
 #include <clib/alib_protos.h>
 #include <proto/exec.h>
 #include <proto/intuition.h>
@@ -34,6 +36,15 @@
 #include <stdio.h>
 #include <string.h>
 #include <time.h>
+
+/* The Video toggle: Zune underlines the character after '_'
+   (MUIA_Text_HiCharIdx), MUI of MorphOS a given character
+   (MUIA_Text_HiChar). */
+#ifdef MUIA_Text_HiCharIdx
+#define AOS_VIDEO_LABEL MUIA_Text_Contents, (IPTR) "_Video", MUIA_Text_HiCharIdx, '_'
+#else
+#define AOS_VIDEO_LABEL MUIA_Text_Contents, (IPTR) "Video", MUIA_Text_HiChar, 'v'
+#endif
 
 #define MAX_CHATS      8
 #define CHAT_LINES_MAX 200
@@ -677,8 +688,8 @@ static IPTR remove_account(const char *identity, int ask) {
     if (ask) {
         char shown[AOS_CORE_ADDR_MAX];
         to_display(identity, shown, sizeof(shown));
-        if (MUI_Request(gui.app, gui.account_win, 0, (CONST_STRPTR) "aos-phone", (CONST_STRPTR) "_Remove|_Cancel",
-                        (CONST_STRPTR) "Remove the account\n%s?\n\nIts settings and password are deleted.",
+        if (MUI_Request(gui.app, gui.account_win, 0, (STRPTR) "aos-phone", (STRPTR) "_Remove|_Cancel",
+                        (STRPTR) "Remove the account\n%s?\n\nIts settings and password are deleted.",
                         (IPTR)shown) != 1) {
             return FALSE;
         }
@@ -1373,16 +1384,11 @@ static IPTR do_rexx(int command, IPTR *args) {
 }
 
 /* clang-format off */
-AROS_UFH3(static IPTR, rexx_entry,
-    AROS_UFHA(struct Hook *, hook, A0),
-    AROS_UFHA(Object *, app, A2),
-    AROS_UFHA(IPTR *, args, A1)) {
-    AROS_USERFUNC_INIT
+HOOKPROTO(rexx_entry, IPTR, Object *app, IPTR *args) {
     return DoMethod(app, MUIM_Phone_Rexx, (IPTR)hook->h_Data, (IPTR)args);
-    AROS_USERFUNC_EXIT
 }
 
-BOOPSI_DISPATCHER(IPTR, phone_dispatcher, cl, obj, msg)
+SDISPATCHER(phone_dispatcher) {
     struct phone_msg *pmsg = (struct phone_msg *)msg;
     switch (msg->MethodID) {
     case MUIM_Phone_CoreEvents: return do_core_events();
@@ -1411,7 +1417,7 @@ BOOPSI_DISPATCHER(IPTR, phone_dispatcher, cl, obj, msg)
     case MUIM_Phone_Ring: return do_ring();
     }
     return DoSuperMethodA(cl, obj, msg);
-BOOPSI_DISPATCHER_END
+}
 /* clang-format on */
 
 /* ---- creation ---- */
@@ -1568,8 +1574,7 @@ static Object *create_windows(void) {
                 Child, gui.call_answer_button = SimpleButton("_Answer"),
                 Child, gui.call_video_button = TextObject, ButtonFrame,
                     MUIA_Background, MUII_ButtonBack, MUIA_Font, MUIV_Font_Button,
-                    MUIA_Text_PreParse, (IPTR)"\33c", MUIA_Text_Contents, (IPTR)"_Video",
-                    MUIA_Text_HiCharIdx, '_', MUIA_ControlChar, 'v',
+                    MUIA_Text_PreParse, (IPTR)"\33c", AOS_VIDEO_LABEL, MUIA_ControlChar, 'v',
                     MUIA_InputMode, MUIV_InputMode_Toggle, MUIA_Disabled, TRUE,
                 End,
                 Child, gui.call_hangup_button = SimpleButton("_Hang up"),
@@ -1585,7 +1590,8 @@ static Object *create_windows(void) {
     }
 
     for (int i = 0; i < RX_COUNT; ++i) {
-        gui.rexx_hooks[i].h_Entry = (HOOKFUNC)rexx_entry;
+        gui.rexx_hooks[i].h_Entry = AOS_HOOKFUNC(HookEntry);
+        gui.rexx_hooks[i].h_SubEntry = AOS_HOOKFUNC(rexx_entry);
         gui.rexx_hooks[i].h_Data = (APTR)(IPTR)i;
     }
 
@@ -1666,7 +1672,7 @@ int aos_gui_create(void) {
         aos_gui_dispose();
         return -1;
     }
-    gui.phone_class = MUI_CreateCustomClass(NULL, (ClassID)MUIC_Application, NULL, sizeof(IPTR), phone_dispatcher);
+    gui.phone_class = MUI_CreateCustomClass(NULL, AOS_SUPERCLASS(MUIC_Application), NULL, sizeof(IPTR), ENTRY(phone_dispatcher));
     gui.video_class = aos_video_class_create();
     gui.lamp_class = aos_lamp_class_create();
     gui.surface = aos_video_surface_create(video_notify, NULL);

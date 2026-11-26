@@ -14,6 +14,7 @@
 #include <mediastreamer2/msticker.h>
 
 #include <devices/ahi.h>
+#include <dos/dos.h>
 #include <exec/memory.h>
 #include <exec/ports.h>
 #include <proto/exec.h>
@@ -41,6 +42,7 @@ struct ahi_out {
     MSTickerSynchronizer *sync;
     MSTicker *synced; /* the ticker the synchronizer is set on */
     int running;
+    struct Task *task; /* the writer thread, which ahi_write_postprocess() wakes */
     pthread_t thread;
     ULONG unit;
 };
@@ -64,6 +66,26 @@ static void setup_request(struct AHIRequest *req, UBYTE *data, ULONG bytes, int 
     req->ahir_Volume = 0x10000;
     req->ahir_Position = 0x8000;
     req->ahir_Link = link;
+}
+
+/* Waits until req completes, or until stop is set and the thread gets
+   SIGBREAKF_CTRL_F: a device that stalls must not keep the filter from
+   stopping. Returns 0 when req completed (and was taken back), -1 on stop
+   with req still pending. */
+static int wait_request(struct ahi_out *out, struct AHIRequest *req, ULONG port_mask) {
+    for (;;) {
+        if (CheckIO((struct IORequest *)req)) {
+            WaitIO((struct IORequest *)req);
+            return 0;
+        }
+        pthread_mutex_lock(&out->lock);
+        int stop = out->stop;
+        pthread_mutex_unlock(&out->lock);
+        if (stop) {
+            return -1;
+        }
+        Wait(port_mask | SIGBREAKF_CTRL_F);
+    }
 }
 
 /* Plays the queue in blocks of BLOCK_MS on two requests, each linked to the
@@ -98,6 +120,10 @@ static void *writer_main(void *arg) {
     } else {
         CopyMem(req[0], req[1], sizeof(struct AHIRequest));
         ms_message("AosAhiWrite: playing at %d Hz, %d channel(s)", rate, nchannels);
+        pthread_mutex_lock(&out->lock);
+        out->task = FindTask(NULL);
+        pthread_mutex_unlock(&out->lock);
+        ULONG port_mask = 1UL << port->mp_SigBit;
         struct AHIRequest *previous = NULL;
         /* The writer takes whole blocks only and keeps one more block of
            margin in the queue, for a ticker that comes late. Without enough
@@ -143,7 +169,12 @@ static void *writer_main(void *arg) {
             setup_request(req[i], buffer[i], block, rate, nchannels, previous);
             SendIO((struct IORequest *)req[i]);
             if (previous != NULL) {
-                WaitIO((struct IORequest *)previous);
+                if (wait_request(out, previous, port_mask) != 0) {
+                    /* Stopped: the post-loop code takes back previous. */
+                    AbortIO((struct IORequest *)req[i]);
+                    WaitIO((struct IORequest *)req[i]);
+                    break;
+                }
                 struct timespec done;
                 clock_gettime(CLOCK_MONOTONIC, &done);
                 if (last_done.tv_sec != 0) {
@@ -188,6 +219,9 @@ static void *writer_main(void *arg) {
     if (port != NULL) {
         DeleteMsgPort(port);
     }
+    pthread_mutex_lock(&out->lock);
+    out->task = NULL; /* nothing may signal this task once it ends */
+    pthread_mutex_unlock(&out->lock);
     return NULL;
 }
 
@@ -286,6 +320,9 @@ static void ahi_write_postprocess(MSFilter *f) {
     if (out->running) {
         pthread_mutex_lock(&out->lock);
         out->stop = 1;
+        if (out->task != NULL) {
+            Signal(out->task, SIGBREAKF_CTRL_F);
+        }
         pthread_mutex_unlock(&out->lock);
         pthread_join(out->thread, NULL);
         out->running = 0;

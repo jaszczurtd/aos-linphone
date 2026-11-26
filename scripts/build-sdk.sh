@@ -1,26 +1,28 @@
 #!/bin/bash
-# Builds the linphone SDK for AROS x86_64 and installs it, with everything it
-# needs, into one prefix:
+# Builds the linphone SDK for AROS x86_64 or MorphOS and installs it, with
+# everything it needs, into one prefix:
 #
 #   1. the compatibility layer (compat/) -> libaosnet, libaoscompat, libdl
 #   2. the third-party ports (deps/)     -> jsoncpp, speex, libxml2, mbedtls, srtp, opus,
 #                                           libvpx, libyuv, libjpeg-turbo
 #   3. the patches (patches/apply.sh)    -> applied to third_party/linphone-sdk
-#   4. the SDK (third_party/linphone-sdk with sdk/aros-sdk.cmake)
+#   4. the SDK (third_party/linphone-sdk with sdk/<system>-sdk.cmake)
 #
 # usage: scripts/build-sdk.sh <toolchain dir> <prefix> [<build root>]
 #
-#   toolchain dir  directory holding x86_64-aros-gcc
+#   toolchain dir  directory holding x86_64-aros-gcc (AROS), or holding
+#                  bin/ppc-morphos-gcc (MorphOS); the system follows from it
 #   prefix         install directory, created when missing
 #   build root     where build-compat, build-deps and build-sdk go,
 #                  default: the repository root
 #
 # Each step reuses its build directory, so running the script again rebuilds
-# only what changed. When sdk/aros-sdk.cmake, the prefix or the toolchain
-# differ from the last run, build-sdk is configured afresh, because CMake
-# keeps the entries of an existing cache over those of the initial cache.
-# JOBS sets the parallel job count (default 8). libvpx and libjpeg-turbo need
-# yasm and nasm on the build host. The SDK
+# only what changed. When the SDK settings (sdk/<system>-sdk.cmake,
+# sdk/sdk-common.cmake), the prefix or the toolchain differ from the last
+# run, build-sdk is configured afresh, because CMake keeps the entries of an
+# existing cache over those of the initial cache.
+# JOBS sets the parallel job count (default 8). For AROS, libvpx and
+# libjpeg-turbo need yasm and nasm on the build host. The SDK
 # takes its version from `git describe`, which needs the upstream tags; set
 # LINPHONESDK_VERSION (for example 5.5.41) when the submodule has none.
 
@@ -38,12 +40,18 @@ prefix=$(cd "$2" && pwd)
 build=${3:-$repo}
 jobs=${JOBS:-8}
 sdk="$repo/third_party/linphone-sdk"
-tc=(-DCMAKE_TOOLCHAIN_FILE="$repo/cmake/aros-x86_64.cmake" -DAROS_TOOLCHAIN_DIR="$toolchain")
 
-if [ ! -x "$toolchain/x86_64-aros-gcc" ]; then
-    echo "$toolchain/x86_64-aros-gcc not found" >&2
+if [ -x "$toolchain/x86_64-aros-gcc" ]; then
+    system=aros
+    tc=(-DCMAKE_TOOLCHAIN_FILE="$repo/cmake/aros-x86_64.cmake" -DAROS_TOOLCHAIN_DIR="$toolchain")
+elif [ -x "$toolchain/bin/ppc-morphos-gcc" ]; then
+    system=morphos
+    tc=(-DCMAKE_TOOLCHAIN_FILE="$repo/cmake/morphos-ppc.cmake" -DMORPHOS_TOOLCHAIN_DIR="$toolchain")
+else
+    echo "$toolchain holds neither x86_64-aros-gcc nor bin/ppc-morphos-gcc" >&2
     exit 1
 fi
+sdk_cache="$repo/sdk/$system-sdk.cmake"
 
 # The SDK needs only these submodules of its own; mbedtls needs its
 # framework submodule to configure.
@@ -83,7 +91,7 @@ echo "== sdk"
 # compiled objects stay, and the build then compiles only what the new
 # settings change.
 sdk_build="${build:?}/build-sdk"
-settings="$(sha256sum < "$repo/sdk/aros-sdk.cmake")
+settings="$(cat "$sdk_cache" "$repo/sdk/sdk-common.cmake" | sha256sum)
 prefix=$prefix
 toolchain=$toolchain"
 stamp="$sdk_build/aos-sdk-settings.txt"
@@ -92,7 +100,7 @@ if [ -f "$sdk_build/CMakeCache.txt" ] && [ "$(cat "$stamp" 2>/dev/null)" != "$se
     rm -rf "$sdk_build/CMakeCache.txt" "$sdk_build/CMakeFiles"
 fi
 cmake -S "$sdk" -B "$sdk_build" -G Ninja -DAOS_PREFIX="$prefix" \
-    -C "$repo/sdk/aros-sdk.cmake" "${tc[@]}" "${version[@]}"
+    -C "$sdk_cache" "${tc[@]}" "${version[@]}"
 printf '%s\n' "$settings" > "$stamp"
 cmake --build "$sdk_build" -j "$jobs"
 cmake --install "$sdk_build"

@@ -263,6 +263,37 @@ static const struct aos_video_source failing_source = {
     .close = failing_close,
 };
 
+/* Gives 3 pictures, 1.3 s apart, then no more: slower than one a second. */
+static void *slow_open(const struct aos_video_source *source, const struct aos_video_format *wanted,
+                       struct aos_video_format *got) {
+    (void)source;
+    (void)wanted;
+    static int count;
+    count = 0;
+    got->width = VIDEO_W;
+    got->height = VIDEO_H;
+    got->fps = VIDEO_FPS;
+    return &count;
+}
+
+static int slow_next_frame(void *handle, unsigned char *rgb) {
+    int *count = handle;
+    aos_test_sleep_ms(1300);
+    if (++*count > 3) {
+        return -1;
+    }
+    memset(rgb, 0, VIDEO_W * VIDEO_H * 3);
+    return 0;
+}
+
+static const struct aos_video_source slow_source = {
+    .driver = "Slow",
+    .name = "3 pictures 1.3 s apart",
+    .open = slow_open,
+    .next_frame = slow_next_frame,
+    .close = failing_close,
+};
+
 /* Returns stereo frames (n, n + 1000) at once, without any pace, at a rate
    whose 300 ms are not a whole number of frames. */
 static void *eager_open(const struct aos_audio_source *source, const struct aos_audio_format *wanted,
@@ -468,6 +499,31 @@ static void test_camera(MSFactory *factory, struct aos_file_video *v) {
     printf("info: a failing source: %.1f pictures per second while it works, %.1f after\n", (double)alive,
            (double)dead);
     AOS_CHECK(alive > 0.0f && dead == 0.0f, "camera: reports 0 pictures per second once its source stops");
+    ms_filter_destroy(reader);
+
+    /* A slow source is not taken for a stopped one between its pictures,
+       but is once it has been silent for four times its pace. */
+    AOS_CHECK(aos_camera_register(factory, &slow_source) == 0, "camera: a slow source is registered");
+    reader = camera_reader(manager, "Slow: 3 pictures 1.3 s apart");
+    AOS_CHECK(reader != NULL, "camera: the filter of the slow source is created");
+    if (reader == NULL) {
+        return;
+    }
+    float before = 0.0f, between = 0.0f, stopped = 1.0f;
+    start_run(&r, factory, reader, &video_sink_desc, 0);
+    aos_test_sleep_ms(1200); /* waiting for the first picture */
+    ms_filter_call_method(reader, MS_FILTER_GET_FPS, &before);
+    aos_test_sleep_ms(3800); /* pictures at 1.3, 2.6 and 3.9 s: 1.1 s after the last one */
+    ms_filter_call_method(reader, MS_FILTER_GET_FPS, &between);
+    aos_test_sleep_ms(7000); /* over 8 s after the last one */
+    ms_filter_call_method(reader, MS_FILTER_GET_FPS, &stopped);
+    stop_run(&r);
+    printf("info: a slow source: %.1f pictures per second before its first picture, %.1f between pictures, %.1f "
+           "after it stops\n",
+           (double)before, (double)between, (double)stopped);
+    AOS_CHECK(before > 0.0f, "camera: a source gets more than 1 s for its first picture");
+    AOS_CHECK(between > 0.0f && stopped == 0.0f,
+              "camera: a source slower than one picture a second stays alive until silent for four times its pace");
     ms_filter_destroy(reader);
 }
 

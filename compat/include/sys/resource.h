@@ -1,6 +1,7 @@
 /*
- * sys/resource.h - adds the process priority calls to the posixc header,
- * which declares them as not implemented. libaoscompat provides them.
+ * sys/resource.h - adds the process priority calls to the C library header
+ * (posixc declares them as not implemented; libnix declares them without
+ * an implementation). libaoscompat provides them.
  *
  * Exec task priorities are not nice values, and raising one starves every
  * task below it, so setpriority() refuses with EPERM. Threads change their
@@ -10,10 +11,16 @@
 #ifndef AOS_SYS_RESOURCE_H
 #define AOS_SYS_RESOURCE_H
 
-/* struct rlimit, getrlimit(), getrusage() and the rest come from posixc. */
-#include_next <sys/resource.h>
-
 #include <sys/types.h>
+
+#ifdef __MORPHOS__
+/* The libnix header uses struct timeval without declaring it. */
+#include <sys/time.h>
+#endif
+
+/* struct rlimit, getrlimit(), getrusage() and the rest come from the C
+   library. */
+#include_next <sys/resource.h>
 
 #ifndef PRIO_PROCESS
 #define PRIO_PROCESS 0
@@ -21,6 +28,8 @@
 #define PRIO_USER    2
 #endif
 
+/* libnix declares both, with an int instead of id_t. */
+#ifndef __MORPHOS__
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -33,6 +42,7 @@ int setpriority(int which, id_t who, int prio);
 
 #ifdef __cplusplus
 }
+#endif
 #endif
 
 #endif /* AOS_SYS_RESOURCE_H */

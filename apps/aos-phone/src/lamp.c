@@ -6,11 +6,13 @@
  * palette screens too.
  */
 #include "lamp.h"
+#include "mui_compat.h"
 
 #include <exec/types.h>
 #include <graphics/view.h>
 #include <intuition/screens.h>
 
+#include <SDI/SDI_hook.h>
 #include <clib/alib_protos.h>
 #include <proto/graphics.h>
 #include <proto/intuition.h>
@@ -155,7 +157,7 @@ static IPTR lamp_draw(Class *cl, Object *obj, struct MUIP_Draw *msg) {
 }
 
 /* clang-format off */
-BOOPSI_DISPATCHER(IPTR, lamp_dispatcher, cl, obj, msg)
+SDISPATCHER(lamp_dispatcher) {
     switch (msg->MethodID) {
     case OM_NEW: return lamp_new(cl, obj, (struct opSet *)msg);
     case OM_SET: return lamp_set(cl, obj, (struct opSet *)msg);
@@ -172,11 +174,11 @@ BOOPSI_DISPATCHER(IPTR, lamp_dispatcher, cl, obj, msg)
         return DoSuperMethodA(cl, obj, msg);
     }
     return DoSuperMethodA(cl, obj, msg);
-BOOPSI_DISPATCHER_END
+}
 /* clang-format on */
 
 struct MUI_CustomClass *aos_lamp_class_create(void) {
-    return MUI_CreateCustomClass(NULL, (ClassID)MUIC_Area, NULL, sizeof(struct lamp_data), lamp_dispatcher);
+    return MUI_CreateCustomClass(NULL, AOS_SUPERCLASS(MUIC_Area), NULL, sizeof(struct lamp_data), ENTRY(lamp_dispatcher));
 }
 
 void aos_lamp_class_delete(struct MUI_CustomClass *lamp_class) {

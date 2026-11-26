@@ -2,10 +2,11 @@ cmake_minimum_required(VERSION 3.16)
 
 project(aos-linphone LANGUAGES C CXX)
 
-if(NOT CMAKE_SYSTEM_NAME STREQUAL "AROS")
+if(NOT CMAKE_SYSTEM_NAME MATCHES "^(AROS|MorphOS)$")
     message(FATAL_ERROR
-        "aos-linphone targets AROS; configure with "
-        "-DCMAKE_TOOLCHAIN_FILE=${CMAKE_CURRENT_SOURCE_DIR}/cmake/aros-x86_64.cmake")
+        "aos-linphone targets AROS and MorphOS; configure with "
+        "-DCMAKE_TOOLCHAIN_FILE=${CMAKE_CURRENT_SOURCE_DIR}/cmake/aros-x86_64.cmake "
+        "or ${CMAKE_CURRENT_SOURCE_DIR}/cmake/morphos-ppc.cmake")
 endif()
 
 set(CMAKE_C_STANDARD 11)
@@ -23,6 +24,7 @@ include(GNUInstallDirs)
 
 add_subdirectory(compat)
 
+# The tests run on the target system (AOS_TEST_RUNNER) and need libaosnet.
 include(CTest)
 if(BUILD_TESTING)
     add_subdirectory(tests)

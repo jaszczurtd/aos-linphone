@@ -1,5 +1,5 @@
 # Ports of the third-party libraries the linphone stack needs on AROS and
-# that the AROS SDK does not provide in a usable form: jsoncpp,
+# MorphOS and that their SDKs do not provide in a usable form: jsoncpp,
 # speex/speexdsp, libxml2, mbedtls, libsrtp (SRTP media encryption, with
 # mbedtls as its crypto engine), opus, and for video libvpx (VP8), libyuv
 # (pixel format conversion and scaling) and libjpeg-turbo (the static
@@ -18,11 +18,15 @@
 # libsrtp and libjpeg-turbo also take headers from the compatibility layer,
 # so install that into the same prefix first.
 #
-# libvpx and libjpeg-turbo contain x86_64 assembly: yasm and nasm must be
-# installed on the build host.
+# On AROS, libvpx and libjpeg-turbo contain x86_64 assembly: yasm and nasm
+# must be installed on the build host. On MorphOS both build without SIMD
+# code (libvpx has none for 32-bit PowerPC, and the AltiVec code of
+# libjpeg-turbo would not run on a G3).
 #
 #   cmake -S deps -B build-deps -DCMAKE_TOOLCHAIN_FILE=<repo>/cmake/aros-x86_64.cmake \
 #         -DAROS_TOOLCHAIN_DIR=<toolchain> -DCMAKE_INSTALL_PREFIX=<prefix>
+#   cmake -S deps -B build-deps -DCMAKE_TOOLCHAIN_FILE=<repo>/cmake/morphos-ppc.cmake \
+#         -DMORPHOS_TOOLCHAIN_DIR=<toolchain> -DCMAKE_INSTALL_PREFIX=<prefix>
 #   cmake --build build-deps
 
 cmake_minimum_required(VERSION 3.16)
@@ -47,6 +51,7 @@ endforeach()
 set(AOS_PORT_ARGS
     -DCMAKE_TOOLCHAIN_FILE=${CMAKE_TOOLCHAIN_FILE}
     -DAROS_TOOLCHAIN_DIR=${AROS_TOOLCHAIN_DIR}
+    -DMORPHOS_TOOLCHAIN_DIR=${MORPHOS_TOOLCHAIN_DIR}
     -DCMAKE_INSTALL_PREFIX=${CMAKE_INSTALL_PREFIX}
     -DCMAKE_PREFIX_PATH=${CMAKE_INSTALL_PREFIX}
     -DCMAKE_BUILD_TYPE=Release
@@ -120,11 +125,19 @@ if(_aos_cpus EQUAL 0)
     set(_aos_cpus 1)
 endif()
 set(AOS_JOBS ${_aos_cpus} CACHE STRING "Parallel jobs of the make-based ports (libvpx)")
+if(CMAKE_SYSTEM_NAME STREQUAL "MorphOS")
+    set(AOS_VPX_ENV CROSS=${MORPHOS_TOOLCHAIN_DIR}/bin/ppc-morphos-
+        "CFLAGS=${MORPHOS_CLIB_FLAGS}" "LDFLAGS=${MORPHOS_CLIB_FLAGS}")
+    set(AOS_VPX_TARGET --target=generic-gnu)
+else()
+    set(AOS_VPX_ENV CROSS=${AROS_TOOLCHAIN_DIR}/x86_64-aros-)
+    set(AOS_VPX_TARGET --target=x86_64-linux-gcc --as=yasm)
+endif()
 ExternalProject_Add(libvpx
     SOURCE_DIR "${AOS_SDK_SOURCE_DIR}/external/libvpx"
-    CONFIGURE_COMMAND ${CMAKE_COMMAND} -E env CROSS=${AROS_TOOLCHAIN_DIR}/x86_64-aros-
+    CONFIGURE_COMMAND ${CMAKE_COMMAND} -E env ${AOS_VPX_ENV}
         <SOURCE_DIR>/configure
-        --target=x86_64-linux-gcc
+        ${AOS_VPX_TARGET}
         --prefix=${CMAKE_INSTALL_PREFIX}
         --libdir=${CMAKE_INSTALL_PREFIX}/lib
         --enable-static
@@ -142,7 +155,6 @@ ExternalProject_Add(libvpx
         --disable-examples
         --disable-unit-tests
         --disable-tools
-        --as=yasm
     BUILD_COMMAND make -j${AOS_JOBS}
     INSTALL_COMMAND make install)
 
@@ -163,9 +175,15 @@ ExternalProject_Add(libyuv
 # x86_64 SIMD code (nasm). The forced header of the compatibility layer gives
 # its C sources the feature environment of the rest of the stack, in which
 # <stdlib.h> declares setenv().
+if(CMAKE_SYSTEM_NAME STREQUAL "MorphOS")
+    set(AOS_JPEG_SIMD OFF)
+else()
+    set(AOS_JPEG_SIMD ON)
+endif()
 ExternalProject_Add(libjpeg-turbo
     SOURCE_DIR "${AOS_SDK_SOURCE_DIR}/external/libjpeg-turbo"
     CMAKE_ARGS ${AOS_PORT_ARGS}
+        -DWITH_SIMD=${AOS_JPEG_SIMD}
         -DWITH_TURBOJPEG=ON
         -DWITH_JAVA=OFF
         -DENABLE_TOOLS=OFF

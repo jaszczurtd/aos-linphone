@@ -12,10 +12,10 @@ Statements marked *(checked)* were verified in code, headers or a test run;
 | | MorphOS | AmigaOS 3.x | AmigaOS 4.1 |
 |---|---|---|---|
 | Processor | PowerPC G3/G4/G5, big-endian | 68020-68060, Vampire 68080, emulators with JIT | PowerPC (X5000, A1222, Sam460, Pegasos), big-endian |
-| Compiler | GCC 15.2 in SDK 3.20, threads and TLS | GCC 16.2 (AmigaPorts), C++ threads only in a self-built toolchain | GCC 11/13/15 (adtools), clib4 with pthreads |
+| Compiler | GCC 15.2 in SDK 3.20, also as a cross compiler from pkgsrc *(checked)*; pthreads work, `std::thread::join` and `thread_local` destructors have bugs | GCC 16.2 (AmigaPorts), C++ threads only in a self-built toolchain | GCC 11/13/15 (adtools), clib4 with pthreads |
 | Network API | AmiTCP level: no `getaddrinfo`, sockets per task | Roadshow: `getaddrinfo`, shared library bases | Roadshow: `getaddrinfo`, shared library bases |
 | USB stack | Poseidon, like AROS | Poseidon (commercial) on USB cards | its own stack, not Poseidon |
-| USB camera | port of AROS `uvc.class` looks easy | only real hardware, MJPEG too costly | `usb2video.device` of the community `usb2` stack |
+| USB camera | AROS `uvc.class` and xHCI driver ported; pictures in QEMU, slowly *(checked)* | only real hardware, MJPEG too costly | `usb2video.device` of the community `usb2` stack |
 | Emulation | QEMU `pegasos2` boots MorphOS 3.21 *(checked)* | WinUAE, FS-UAE, Amiberry (JIT) | QEMU `pegasos2`, `amigaone`, `sam460ex` |
 | Verdict | doable; the network layer is the main work | doable for JIT emulators and fast accelerators, not for a real 68060 | doable, camera through `usb2` only |
 
@@ -93,28 +93,98 @@ instances calling each other with sound and VP8 video, plus a recording.
 ## MorphOS
 
 **Compiler.** The best of the three. SDK 3.20 (May 2026) has GCC 15.2, a
-GCC thread model for MorphOS, exceptions and TLS in the kernel since 3.14;
-the WebKit browser Wayfarer shows that large C++ programs with threads work.
+GCC thread model for MorphOS, exceptions and TLS in the kernel since 3.14,
+but as MorphOS programs. On Linux, pkgsrc builds the same GCC 15.2 with
+the same MorphOS patches as a cross compiler (`cross/ppc-morphos-gcc`, with
+binutils 2.45.1 and SDK 3.20), and its programs run in MorphOS 3.21
+*(checked)*. Programs with MUI need the libnix C library: the SDK forbids
+MUI and system libraries with ixemul. POSIX threads from libpthread work
+with both C libraries *(checked)*. Two problems of C++ threads remain
+*(checked)*:
+
+- `std::thread::join()` fails with EINVAL when the thread has already
+  ended. The MorphOS thread code reads the new thread's id only after the
+  thread may have run to its end; reading it earlier fixes it in our tests.
+  In the linphone stack only mediastreamer2's TURN over TCP uses
+  `std::thread`.
+- Destructors of `thread_local` objects do not run when a thread ends,
+  while destructors of `pthread_key_create` keys do. bctoolbox and
+  liblinphone have such objects. The compiler's default
+  `-fno-use-cxa-atexit` is the cause: the port builds all C++ code with
+  `-fuse-cxa-atexit` and supplies the `__cxa_atexit()` the C library lacks,
+  and then the destructors run *(checked)*.
 
 **Network: the main obstacle.** The MorphOS socket library is on the level
 of AmiTCP: no `getaddrinfo`, `inet_pton` or `inet_ntop`, no IPv6, no shared
-library bases and no errno hook, and socket data belong to the task that
-opened the library. liblinphone creates its RTP sockets in the core thread
-but sends and receives in the media threads (MSTicker), so sockets have to
-move between tasks (`ReleaseCopyOfSocket`/`ObtainSocket` with a descriptor
-map) or the port uses ixemul. A small test of that, like the first stage of
-the AROS port, comes before anything else. Name resolution has to be built
-on `gethostbyname`, IPv4 only.
+library bases and no errno hook, and socket descriptors belong to a task.
+liblinphone creates its RTP sockets in the core thread but sends and
+receives in the media threads (MSTicker). A test program shows how the two
+C libraries behave *(checked)*:
+
+- with libnix, a socket of one thread gives `EBADF` in another, while a copy
+  handed over with `ReleaseCopyOfSocket` and taken with `ObtainSocket` in a
+  thread with its own library base works in both directions;
+- ixemul copies the descriptors into a thread when it is created, so later
+  sockets of either thread stay invisible to the other;
+- `MSG_DONTWAIT` is ignored, `FIONBIO` works, and errno is per thread.
+
+Copies handed over this way share the socket's state, and closing one copy
+leaves the socket open while another exists *(checked)*. The MorphOS
+backend of the compatibility layer gives each socket a number of its own
+and each thread its own copy, taken on first use; closing a socket shuts it
+down for every thread. Name resolution is built on `gethostbyname`, IPv4
+only. The layer's tests pass in MorphOS 3.21 *(checked)*. The network stack
+does not report the DNS servers it got from DHCP, so without servers set by
+hand the SIP resolver takes addresses from `getaddrinfo` and cannot look up
+SRV records.
+
+**Status** *(checked in QEMU)*. The SDK builds for MorphOS with libnix. The
+console test program registers an account on a test registrar, the phone
+starts with its MUI window and ARexx port, and a video call between the
+phone on MorphOS and the phone on AROS shows the picture of the other side
+on both. Calls with linphonec on Linux carry video and sound from files in
+both directions, and a call recorded on MorphOS matches the sound the other
+side sent. Under emulation the Opus encoder does not keep up, so sound sent
+from MorphOS has gaps; with PCMU it is clean. HTTPS (mbedtls) and name
+resolution work. Sound cards are untested, because the emulated Pegasos II
+has no AHI driver. A USB camera's picture reaches the other side of a
+call, but under emulation only every few seconds, and in some calls too
+late for mediastreamer2, which then shows a placeholder (see the camera
+below).
 
 **Camera: a port of the AROS class.** MorphOS uses the Poseidon USB stack,
 as AROS does. AROS's `uvc.class` (about 2,400 lines, AROS Public Licence)
 is an ordinary Poseidon class: bulk or isochronous streaming through
 Poseidon's real-time isochronous API, YUY2 and MJPEG, VHI libraries for the
-cameras. The MorphOS SDK 3.20 headers have that API and all 34 Poseidon
-functions the class calls; only one AROS addition for USB 3 is missing, and
-the SDK ships an example USB class as a starting point *(checked)*. The port
-means replacing the AROS macros, its logging and the library skeleton, not
-the USB code.
+cameras. The port in `drivers/uvc/` keeps its USB code and replaces the
+AROS macros, its logging and the library skeleton; it leaves out MJPEG,
+for which MorphOS has no JPEG decoder library, and USB 3. On the
+EHCI controller of MorphOS 3.21 the camera binds and negotiates a stream,
+but no picture arrives: the system's USB host driver refuses a real-time
+isochronous handler there, and plain isochronous transfers never complete
+*(checked)*.
+
+So the port brings its own host controller driver as well: AROS's
+`pcixhci.device` (xHCI, AROS Public Licence) in `drivers/xhci/`. MorphOS has
+no xHCI driver, so it takes over a controller nothing else uses. The port
+keeps the AROS code and adds what MorphOS lacks around it: PCI access
+through `pcix.library`, the device skeleton, port status words in the byte
+order Poseidon 4 expects, the root port of a new device, and endpoints set
+up at their first transfer and again after `SET_INTERFACE`, which AROS's
+Poseidon asks for itself. It also needed fixes for big-endian machines,
+and for an isochronous ring that the driver lost track of under load,
+which AROS's own builds would need too; `uvc.class` no longer stops a
+stream while a grab waits for a slow frame. In QEMU with its xHCI and the
+camera passed through, the camera enumerates, `uvc.class` delivers 320x240
+pictures, and in a video call linphonec on Linux receives the camera's
+picture from the phone *(checked)*. Under software emulation the processor
+completes about 3,000 of the camera's 8,000 isochronous packets a second,
+so many frames break and a whole one takes from five seconds to half a
+minute. The phone keeps a camera that slow as long as it delivers, but
+mediastreamer2 shows its placeholder when the first picture of a call has
+not come within about 15 seconds, which happened in some calls; at
+640x480 no picture came in time at all. A camera on real hardware was not
+tried.
 
 **Sound.** The built-in audio of PowerMacs does not record; other cards and
 USB audio probably do *(estimate)*.
@@ -301,5 +371,6 @@ C; CIF at 15 pictures per second is plausible *(estimate)*. The A1222
   [bsdsocket autodoc](https://wiki.amigaos.net/amiga/autodocs/bsdsocket.doc.txt),
   [usb2 stack](https://github.com/rolsen74/usb2),
   [USB Audio Class driver](https://www.amiga-news.de/en/news/AN-2026-03-00046-EN.html)
-- AROS: `rom/usb/classes/video` (uvc.class) and `rom/usb/poseidon` in the
+- AROS: `rom/usb/classes/video` (uvc.class), `rom/usb/pcixhci`
+  (pcixhci.device) and `rom/usb/poseidon` in the
   [AROS sources](https://github.com/aros-development-team/AROS)

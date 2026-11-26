@@ -37,9 +37,15 @@ int main(void) {
     int rc = 20;
     struct MsgPort *reply = CreateMsgPort();
     struct RexxMsg *msg = reply != NULL ? CreateRexxMsg(reply, NULL, NULL) : NULL;
-    UBYTE *text = msg != NULL ? CreateArgstring((CONST_STRPTR)command, strlen(command)) : NULL;
+    /* Argument strings are UBYTE * on AROS and STRPTR on MorphOS, where
+       rm_Args holds STRPTR instead of IPTR. */
+    APTR text = msg != NULL ? (APTR)CreateArgstring((CONST_STRPTR)command, strlen(command)) : NULL;
     if (text != NULL) {
+#ifdef __MORPHOS__
+        msg->rm_Args[0] = (STRPTR)text;
+#else
         msg->rm_Args[0] = (IPTR)text;
+#endif
         msg->rm_Action = RXCOMM | RXFF_RESULT;
 
         Forbid();
@@ -57,7 +63,7 @@ int main(void) {
             rc = (int)msg->rm_Result1;
             if (rc == 0 && msg->rm_Result2 != 0) {
                 printf("%s\n", (const char *)msg->rm_Result2);
-                DeleteArgstring((UBYTE *)msg->rm_Result2);
+                DeleteArgstring((APTR)msg->rm_Result2);
             }
         }
         DeleteArgstring(text);

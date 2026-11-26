@@ -1,5 +1,7 @@
 /*
  * iconv.h - character set conversion for AROS, implemented by libaoscompat.
+ * On MorphOS the system iconv.library (GNU libiconv) converts, through
+ * functions of libaoscompat that set errno, which the library does not.
  *
  * Converts between UTF-8, US-ASCII, ISO-8859-1 and any 8-bit character set
  * known to codesets.library. The name "unknown", which nl_langinfo(CODESET)
@@ -9,6 +11,30 @@
  * the target replaces characters it cannot represent with '?'; "//IGNORE"
  * drops them and skips invalid input bytes.
  */
+#ifdef __MORPHOS__
+#include_next <iconv.h>
+#ifndef AOS_ICONV_MORPHOS_H
+#define AOS_ICONV_MORPHOS_H
+/* libaoscompat wraps the library: POSIX iconv() takes the input as char **
+   (libiconv() as const char **), and the library sets no errno. */
+#undef iconv_open
+#undef iconv
+#undef iconv_close
+#ifdef __cplusplus
+extern "C" {
+#endif
+iconv_t aos_iconv_open(const char *tocode, const char *fromcode);
+size_t aos_iconv(iconv_t cd, char **inbuf, size_t *inleft, char **outbuf, size_t *outleft);
+int aos_iconv_close(iconv_t cd);
+#ifdef __cplusplus
+}
+#endif
+#define iconv_open  aos_iconv_open
+#define iconv       aos_iconv
+#define iconv_close aos_iconv_close
+#endif /* AOS_ICONV_MORPHOS_H */
+#else
+
 #ifndef AOS_ICONV_H
 #define AOS_ICONV_H
 
@@ -60,3 +86,5 @@ int iconv_close(iconv_t cd);
 #endif
 
 #endif /* AOS_ICONV_H */
+
+#endif /* __MORPHOS__ */

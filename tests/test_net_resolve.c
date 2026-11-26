@@ -235,8 +235,15 @@ static void check_host_and_dns(void) {
     printf("info: %d DNS server(s)%s%s\n", count, count > 0 ? ", first " : "",
            count > 0 ? servers[0] : "");
     struct in_addr a;
+#ifdef __MORPHOS__
+    /* NetStack does not report the servers it got from DHCP; the list has
+       only the servers set by hand (ENV:sys/net/resolv.conf). */
+    AOS_CHECK(count >= 0 && (count == 0 || inet_pton(AF_INET, servers[0], &a) == 1),
+              "aos_net_dns_servers() lists the servers set by hand");
+#else
     AOS_CHECK(count >= 1 && inet_pton(AF_INET, servers[0], &a) == 1,
               "aos_net_dns_servers() lists the DHCP DNS server");
+#endif
     AOS_CHECK(aos_net_dns_servers(NULL, 0) == count, "aos_net_dns_servers() counts without copying");
     errno = 0;
     AOS_CHECK(aos_net_dns_servers(servers, -1) == -1 && errno == EINVAL,

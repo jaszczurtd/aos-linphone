@@ -20,23 +20,28 @@
 #include <string.h>
 #include <time.h>
 
-#define GRABBER_STACK (128 * 1024) /* bytes of stack of the picture thread */
-#define DEAD_AFTER_MS 1000         /* a source silent this long counts as 0 fps */
+#define GRABBER_STACK     (128 * 1024) /* bytes of stack of the picture thread */
+#define FIRST_PICTURE_MS  10000        /* a source without a picture this long counts as 0 fps */
+#define DEAD_AFTER_MS     1000         /* after that, a source silent this long counts as 0 fps... */
+#define DEAD_GAP_FACTOR   4            /* ...or this many times its longest wait for a picture... */
+#define DEAD_AFTER_MAX_MS 30000        /* ...but never longer than this */
 
 struct camera {
     const struct aos_video_source *source;
-    pthread_mutex_t lock; /* guards frame, stop, fps, started, start_time, sent and last_frame */
+    pthread_mutex_t lock; /* guards frame, stop, fps, started, start_time, sent and the picture times */
     struct aos_video_format wanted;
     struct aos_video_format got; /* valid while handle is set */
     void *handle;
-    MSVideoSize size;    /* of the pictures sent: got, cut to even numbers */
-    mblk_t *frame;       /* newest picture not sent yet */
-    float fps;           /* most pictures per second the stream takes */
-    int started;         /* start_time is set */
-    uint64_t start_time; /* ticker time of the first picture sent */
-    uint64_t sent;       /* pictures sent since start_time */
-    uint64_t last_frame; /* monotonic ms of the newest picture of the source */
-    int streaming;       /* between preprocess and postprocess */
+    MSVideoSize size;     /* of the pictures sent: got, cut to even numbers */
+    mblk_t *frame;        /* newest picture not sent yet */
+    float fps;            /* most pictures per second the stream takes */
+    int started;          /* start_time is set */
+    uint64_t start_time;  /* ticker time of the first picture sent */
+    uint64_t sent;        /* pictures sent since start_time */
+    uint64_t last_frame;  /* monotonic ms of the newest picture of the source */
+    uint64_t longest_gap; /* longest wait for a picture of the source in this stream, ms */
+    int got_picture;      /* the source has given a picture in this stream */
+    int streaming;        /* between preprocess and postprocess */
     int stop;
     int running; /* the picture thread was started */
     pthread_t thread;
@@ -102,12 +107,17 @@ static void *grabber_main(void *arg) {
            RAW is red, green, blue in memory. */
         RAWToI420(rgb, c->got.width * 3, pic.planes[0], pic.strides[0], pic.planes[1], pic.strides[1], pic.planes[2],
                   pic.strides[2], c->size.width, c->size.height);
+        uint64_t t = now_ms();
         pthread_mutex_lock(&c->lock);
         if (c->frame != NULL) {
             freemsg(c->frame);
         }
         c->frame = m;
-        c->last_frame = now_ms();
+        if (t - c->last_frame > c->longest_gap) {
+            c->longest_gap = t - c->last_frame;
+        }
+        c->last_frame = t;
+        c->got_picture = 1;
         pthread_mutex_unlock(&c->lock);
     }
     free(rgb);
@@ -138,7 +148,9 @@ static void camera_preprocess(MSFilter *f) {
     c->stop = 0;
     c->started = 0;
     c->streaming = 1;
-    c->last_frame = now_ms(); /* the source gets DEAD_AFTER_MS for its first picture */
+    c->last_frame = now_ms(); /* the source gets FIRST_PICTURE_MS for its first picture */
+    c->longest_gap = 0;
+    c->got_picture = 0;
     if (camera_open(c) != 0) {
         return;
     }
@@ -251,13 +263,26 @@ static int camera_set_fps(MSFilter *f, void *arg) {
 
 /* The pictures per second the filter sends: the stream's limit, or fewer
    when the source gives fewer. While the stream runs it is 0 once the
-   source has given no picture for DEAD_AFTER_MS, or could not be started:
-   mediastreamer2 then replaces a camera silent for 5 s with StaticImage. */
+   source could not be started, has given no picture for FIRST_PICTURE_MS
+   after the start, or later none for DEAD_AFTER_MS or, when it has kept
+   the stream waiting longer before, for DEAD_GAP_FACTOR times its longest
+   wait (at most DEAD_AFTER_MAX_MS): mediastreamer2 then replaces a camera
+   silent for 5 s with StaticImage. A source that takes seconds to start
+   or is slower than one picture a second, such as a USB camera on an
+   emulated machine, so stays the camera. */
 static int camera_get_fps(MSFilter *f, void *arg) {
     struct camera *c = f->data;
     pthread_mutex_lock(&c->lock);
     float fps = c->fps;
-    int dead = c->streaming && (!c->running || now_ms() - c->last_frame > DEAD_AFTER_MS);
+    uint64_t allowed = c->longest_gap * DEAD_GAP_FACTOR;
+    if (!c->got_picture) {
+        allowed = FIRST_PICTURE_MS;
+    } else if (allowed < DEAD_AFTER_MS) {
+        allowed = DEAD_AFTER_MS;
+    } else if (allowed > DEAD_AFTER_MAX_MS) {
+        allowed = DEAD_AFTER_MAX_MS;
+    }
+    int dead = c->streaming && (!c->running || now_ms() - c->last_frame > allowed);
     pthread_mutex_unlock(&c->lock);
     if (c->handle != NULL && c->got.fps < fps) {
         fps = c->got.fps;

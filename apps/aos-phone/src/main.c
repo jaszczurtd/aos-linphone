@@ -53,7 +53,14 @@
 #include "ahi/ahi_source.h"
 #include "files/file_source.h"
 
+#ifdef __AROS__
 #include <aros/startup.h>
+#else
+/* The Workbench start-up message, which the AROS startup code names
+   WBenchMsg and libnix _WBenchMsg. */
+extern struct WBStartup *_WBenchMsg;
+#define WBenchMsg _WBenchMsg
+#endif
 #include <dos/dos.h>
 #include <exec/types.h>
 #include <workbench/startup.h>
@@ -168,10 +175,11 @@ static int read_arguments(struct settings *settings) {
 static int fail(const char *message) {
     fprintf(stderr, "aos-phone: %s\n", message);
     if (WBenchMsg != NULL) {
-        struct EasyStruct request = {sizeof(struct EasyStruct), 0, (CONST_STRPTR) "aos-phone", (CONST_STRPTR) "%s",
-                                     (CONST_STRPTR) "OK"};
+        /* Through APTR: the AROS headers take CONST_STRPTR and RAWARG, the
+           MorphOS ones UBYTE * and APTR. */
+        struct EasyStruct request = {sizeof(struct EasyStruct), 0, (APTR) "aos-phone", (APTR) "%s", (APTR) "OK"};
         IPTR args[1] = {(IPTR)message};
-        EasyRequestArgs(NULL, &request, NULL, (RAWARG)args);
+        EasyRequestArgs(NULL, &request, NULL, (APTR)args);
     }
     return 20;
 }
@@ -204,7 +212,7 @@ static void path_tool_type(const STRPTR *types, const char *name, char *dst, siz
 static void read_tool_types(struct settings *settings) {
     struct WBArg *arg = &WBenchMsg->sm_ArgList[0];
     BPTR old_dir = CurrentDir(arg->wa_Lock);
-    struct DiskObject *icon = GetDiskObject((CONST_STRPTR)arg->wa_Name);
+    struct DiskObject *icon = GetDiskObject((STRPTR)arg->wa_Name);
     CurrentDir(old_dir);
     if (icon == NULL) {
         return;

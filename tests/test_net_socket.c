@@ -122,6 +122,13 @@ static void check_shared_udp(void) {
     pthread_join(th, NULL);
     AOS_CHECK(r.closed_errno == EBADF, "the worker then gets EBADF");
     AOS_CHECK(errno == 12345, "worker errors leave the main thread errno alone");
+
+    /* On MorphOS the worker held a copy of the socket (NetStack descriptors
+       are per task); its next call closed it, so the port is free. */
+    int again = socket(AF_INET, SOCK_DGRAM, 0);
+    AOS_CHECK(again >= 0 && bind(again, (struct sockaddr *)&shared_addr, sizeof(shared_addr)) == 0,
+              "the port of the closed socket can be bound again");
+    close(again);
     close(peer);
 }
 
@@ -130,21 +137,31 @@ static void check_shared_udp(void) {
 static void check_socket_flags(void) {
     char buf[4];
 
-    /* belle-sip's DNS resolver (dns.c) */
+    /* belle-sip's DNS resolver (dns.c): SOCK_NONBLOCK where the system has
+       it, fcntl(O_NONBLOCK) otherwise. */
+#ifdef SOCK_NONBLOCK
     int s = socket(AF_INET, SOCK_DGRAM | SOCK_CLOEXEC | SOCK_NONBLOCK, 0);
     AOS_CHECK(s >= 0, "socket() accepts SOCK_CLOEXEC | SOCK_NONBLOCK");
+#else
+    int s = socket(AF_INET, SOCK_DGRAM, 0);
+    AOS_CHECK(s >= 0 && fcntl(s, F_SETFL, fcntl(s, F_GETFL, 0) | O_NONBLOCK) == 0 &&
+                  (fcntl(s, F_GETFL, 0) & O_NONBLOCK) != 0,
+              "fcntl(F_SETFL, O_NONBLOCK) on a socket, F_GETFL reports it");
+#endif
     if (s >= 0) {
         errno = 0;
         ssize_t n = recv(s, buf, sizeof(buf), 0);
         AOS_CHECK(n < 0 && (errno == EWOULDBLOCK || errno == EAGAIN),
-                  "a SOCK_NONBLOCK socket does not block");
+                  "a non-blocking socket does not block");
         close(s);
     }
 
     int t = socket(AF_INET, SOCK_STREAM, 0);
     int one = 1;
+#ifdef SO_NOSIGPIPE
     AOS_CHECK(setsockopt(t, SOL_SOCKET, SO_NOSIGPIPE, &one, sizeof(one)) == 0,
-              "setsockopt(SO_NOSIGPIPE) on a TCP socket (dns.c requires it)");
+              "setsockopt(SO_NOSIGPIPE) on a TCP socket (dns.c requires it without MSG_NOSIGNAL)");
+#endif
     AOS_CHECK(setsockopt(t, IPPROTO_TCP, TCP_NODELAY, &one, sizeof(one)) == 0,
               "setsockopt(TCP_NODELAY)");
     close(t);
@@ -173,15 +190,23 @@ static void check_pktinfo(void) {
     int s = udp_socket(&sa);
     int one = 1;
 
+    /* ortp asks for both only where the system defines them. */
+#ifdef IP_PKTINFO
     AOS_CHECK(setsockopt(r, IPPROTO_IP, IP_PKTINFO, &one, sizeof(one)) == 0,
               "setsockopt(IP_PKTINFO)");
+#else
+    (void)one;
+    printf("info: no IP_PKTINFO\n");
+#endif
+#ifdef SO_TIMESTAMP
     int ts = setsockopt(r, SOL_SOCKET, SO_TIMESTAMP, &one, sizeof(one));
     printf("info: setsockopt(SO_TIMESTAMP): %d\n", ts);
+#endif
 
     struct iovec iov = {(void *)"rtp!", 4};
     struct msghdr out;
     memset(&out, 0, sizeof(out));
-    out.msg_name = &ra;
+    out.msg_name = (void *)&ra;
     out.msg_namelen = sizeof(ra);
     out.msg_iov = &iov;
     out.msg_iovlen = 1;
@@ -196,7 +221,7 @@ static void check_pktinfo(void) {
     struct iovec in_iov = {data, sizeof(data)};
     struct msghdr in;
     memset(&in, 0, sizeof(in));
-    in.msg_name = &from;
+    in.msg_name = (void *)&from;
     in.msg_namelen = sizeof(from);
     in.msg_iov = &in_iov;
     in.msg_iovlen = 1;
@@ -208,15 +233,23 @@ static void check_pktinfo(void) {
 
     int got_pktinfo = 0, got_timestamp = 0;
     for (struct cmsghdr *c = CMSG_FIRSTHDR(&in); c != NULL; c = CMSG_NXTHDR(&in, c)) {
+#ifdef IP_PKTINFO
         if (c->cmsg_level == IPPROTO_IP && c->cmsg_type == IP_PKTINFO) {
             struct in_pktinfo *pi = (struct in_pktinfo *)CMSG_DATA(c);
             got_pktinfo = pi->ipi_addr.s_addr == htonl(INADDR_LOOPBACK);
         }
+#endif
+#ifdef SCM_TIMESTAMP
         if (c->cmsg_level == SOL_SOCKET && c->cmsg_type == SCM_TIMESTAMP) {
             got_timestamp = 1;
         }
+#endif
     }
+#ifdef IP_PKTINFO
     AOS_CHECK(got_pktinfo, "IP_PKTINFO ancillary data names the destination address");
+#else
+    (void)got_pktinfo;
+#endif
     printf("info: SCM_TIMESTAMP ancillary data: %s\n", got_timestamp ? "yes" : "no");
     close(r);
     close(s);

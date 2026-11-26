@@ -1,10 +1,10 @@
-# linphone SDK for AROS
+# linphone SDK for AROS and MorphOS
 
 The linphone stack (bctoolbox, belr, belle-sip, ortp, mediastreamer2 and
 liblinphone) comes from the upstream `linphone-sdk` monorepo, pinned as the
-submodule `third_party/linphone-sdk`. It is built for AROS x86_64 as static
-libraries and installed, together with everything it needs, into one prefix
-that programs then link against.
+submodule `third_party/linphone-sdk`. It is built for AROS x86_64 or for
+MorphOS as static libraries and installed, together with everything it
+needs, into one prefix that programs then link against.
 
 ## Building
 
@@ -12,18 +12,20 @@ that programs then link against.
 scripts/build-sdk.sh /path/to/toolchain /path/to/prefix
 ```
 
-The script needs the AROS cross toolchain (the directory that holds
-`x86_64-aros-gcc`), CMake 3.22 or later, Ninja, git, bash, make, and the
-assemblers yasm (for libvpx) and nasm (for libjpeg-turbo). It runs four steps, each in its
-own build directory under the repository root (or under the directory given
-as a third argument):
+The script needs a cross toolchain: for AROS the directory that holds
+`x86_64-aros-gcc`, for MorphOS the one that holds `bin/ppc-morphos-gcc`; the
+system follows from it. It also needs CMake 3.22 or later, Ninja, git,
+bash and make, and for AROS the assemblers yasm (for libvpx) and nasm (for
+libjpeg-turbo). It runs four steps, each in its own build directory under
+the repository root (or under the directory given as a third argument):
 
 1. `build-compat`: the compatibility layer, installed into the prefix
    (`libaosnet`, `libaoscompat`, `libdl` and `aos_compat.h`).
 2. `build-deps`: the third-party libraries from `deps/`.
 3. `patches/apply.sh`: the few source changes the SDK needs, see
    [patches/README.md](../patches/README.md).
-4. `build-sdk`: the SDK itself, configured with `sdk/aros-sdk.cmake`.
+4. `build-sdk`: the SDK itself, configured with `sdk/aros-sdk.cmake` or
+   `sdk/morphos-sdk.cmake`.
 
 The script checks out only the submodules the build uses. The SDK takes its
 version from `git describe`, so the submodule needs the upstream tags;
@@ -33,15 +35,16 @@ jobs (default 8).
 
 CMake keeps the entries of an existing cache over those of an initial cache,
 so the script remembers in `build-sdk/aos-sdk-settings.txt` what it
-configured `build-sdk` with: a checksum of `sdk/aros-sdk.cmake`, the prefix
-and the toolchain directory. When any of them differs, it configures
+configured `build-sdk` with: a checksum of the initial cache files, the
+prefix and the toolchain directory. When any of them differs, it configures
 `build-sdk` afresh, as `cmake --fresh` does. The compiled objects stay, and
 the build compiles again only what the new settings change; a new prefix
 changes the compiler flags and so rebuilds the whole SDK.
 
 ## Configuration
 
-`sdk/aros-sdk.cmake` is the initial cache of the SDK build. It gives every
+`sdk/aros-sdk.cmake` and `sdk/morphos-sdk.cmake` are the initial caches of
+the SDK build; both take the settings of `sdk/sdk-common.cmake`. It gives every
 compiled unit the forced header `aos_compat.h` and every link, including
 CMake's configuration checks, `-laosnet -laoscompat -lpthread`. The build
 is a small one: SIP, plain chat, audio with G.711, G.722, L16, Speex and
@@ -76,6 +79,27 @@ loader refuses GOT relocations, which position-independent code needs, with
 libraries ask for. libvpx turns PIC on by itself for its x86_64 target and
 libyuv adds `-fPIC` to its flags; `deps/CMakeLists.txt` switches both off.
 
+## MorphOS
+
+`sdk/morphos-sdk.cmake` adds to the common settings:
+
+- the link options `-Wl,--wrap=close,--wrap=read,--wrap=write,--wrap=fcntl,-u,__wrap_close`
+  next to `-laosnet`, so that these libnix functions reach the socket
+  numbers of the compatibility layer (see
+  [ARCHITECTURE.md](../ARCHITECTURE.md#morphos));
+- `USE_GETADDRINFO_FALLBACK` for belle-sip with patch 0012: the MorphOS
+  network stack does not report the DNS servers it got from DHCP, so
+  without servers set by hand belle-sip resolves addresses with
+  `getaddrinfo()`; SRV records then stay unresolved and a SIP domain goes
+  to its A record;
+- no zlib, which the SDK uses only when found and MorphOS has only as a
+  shared library, and libm linked as `-lm`.
+
+libvpx builds for the generic target (big-endian, no SIMD) and
+libjpeg-turbo without SIMD. Programs link with libnix and libpthread
+(`-mclib=libnix -pthread`, from the toolchain file); MUI and the other
+system libraries are called inline and opened by libauto.
+
 ## Linking a program
 
 A CMake project configured with the same toolchain file and initial cache
@@ -88,6 +112,10 @@ cmake -S <project> -B <build> -G Ninja -DAOS_PREFIX=<prefix> \
       -DAROS_TOOLCHAIN_DIR=<toolchain>
 ```
 
+For MorphOS: `-C sdk/morphos-sdk.cmake`,
+`-DCMAKE_TOOLCHAIN_FILE=<repo>/cmake/morphos-ppc.cmake` and
+`-DMORPHOS_TOOLCHAIN_DIR=<toolchain>`.
+
 A program's build directory keeps its cache in the same way: after a change
 to `sdk/aros-sdk.cmake`, configure it again with `cmake --fresh` (CMake 3.24
 or later) or after removing its `CMakeCache.txt`.
@@ -95,7 +123,7 @@ or later) or after removing its `CMakeCache.txt`.
 Each SDK package config loads its targets before it looks for its own
 dependencies, so the program has to find the packages in dependency order,
 as [apps/aos-register/CMakeLists.txt](../apps/aos-register/CMakeLists.txt)
-does: Iconv, ZLIB, LibXml2 and jsoncpp first, then BCToolbox, Belr,
+does: Iconv, ZLIB (AROS only), LibXml2 and jsoncpp first, then BCToolbox, Belr,
 BelleSIP, Ortp, Mediastreamer2 and LibLinphone. Link with the C++ driver.
 
 At run time the SIP, SDP and address parsers load their grammars from
